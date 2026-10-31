@@ -6,7 +6,9 @@
 
 ## 在线阅读
 
-- 阅读站（部署后）：<https://StarDust0083-GP03.github.io/opensandbox-architecture-ebook/>
+![pages](https://github.com/StarDust0083-GP03/opensandbox-architecture-ebook/actions/workflows/pages.yml/badge.svg)
+
+- 阅读站：<https://StarDust0083-GP03.github.io/opensandbox-architecture-ebook/>
 - `wiki/index.html`：分章目录、全文搜索、字号调整
 - `wiki/book.html`：单文件离线合订本，无 CDN、无运行时网络请求
 - `exports/opensandbox-architecture.epub`：EPUB 3（构建时同时复制到 `wiki/` 供阅读站下载）
