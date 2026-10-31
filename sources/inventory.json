@@ -1,0 +1,541 @@
+{
+  "repository": "https://github.com/opensandbox-group/OpenSandbox",
+  "commit": "c2f55b20e945d89efe3d35220942a997a3551751",
+  "head": "c2f55b20e945d89efe3d35220942a997a3551751 2026-10-30 23:09:43 +0800 Merge pull request #2495 from opensandbox-group/osep-0025-w1-contracts-and-resolver",
+  "captured": "2026-10-31",
+  "files": {
+    "README.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/README.md",
+      "sha256": "45b093e09f8b938f4913f163545568d1856e33b8ed02b6a2846aa1857401b25b",
+      "lines": 276
+    },
+    "CHARTER.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/CHARTER.md",
+      "sha256": "8b33bc1c1128e5044720757294ba4da08a2a0090711e2c8dbdb02bb5a87ec0b3",
+      "lines": 77
+    },
+    "ROADMAP.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/ROADMAP.md",
+      "sha256": "3562c192aa17aa401163a25415d3f58eb8a35c2458543efa04e75e61e24f7a67",
+      "lines": 72
+    },
+    "docs/guides/secure-container.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/secure-container.md",
+      "sha256": "76bda2cb07bef98d55cd08feb9c926109143f4a7ffcbd6bf5e9559cf56841238",
+      "lines": 965
+    },
+    "docs/architecture/fast-sandbox/performance.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/performance.md",
+      "sha256": "9d38eb768b4170dc20a4bf9c61eeaac6e2e0c15c1e258c8a96ca3ab0578fd740",
+      "lines": 168
+    },
+    "docs/architecture/control-plane/operator.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/control-plane/operator.md",
+      "sha256": "339bd1cc7afbf9921e92707b9ae7a85e7ba05b8587f4ea1fe65b73a08eac1cab",
+      "lines": 134
+    },
+    "docs/architecture/index.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/index.md",
+      "sha256": "aa1c1a64c6e20db3d26fb0932381fdf3d6ce1bb6ca61463300da5c42e0b3eb3d",
+      "lines": 422
+    },
+    "server/opensandbox_server/services/factory.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/factory.py",
+      "sha256": "51a34a5b2ae276e80ef33e8a503dbca4f0d3e4310e7a56f067e1cccc982f21d5",
+      "lines": 77
+    },
+    "server/opensandbox_server/services/composite_service.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/composite_service.py",
+      "sha256": "383709ee3fbe3ee4042121e1dd3388318eea3eb0c24c83f61e6346a333a47edf",
+      "lines": 188
+    },
+    "manifests/charts/opensandbox/Chart.yaml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/manifests/charts/opensandbox/Chart.yaml",
+      "sha256": "57a0451cd6e119d8eaba2f555c2d50fc8bd86147cc70a76e78f8345f624de22b",
+      "lines": 72
+    },
+    "specs/sandbox-lifecycle.yml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/specs/sandbox-lifecycle.yml",
+      "sha256": "849710b44bce98fa055d9db594016b23bd7ca7191a380af472a476d44d6d3483",
+      "lines": 3259
+    },
+    "specs/execd-api.yaml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/specs/execd-api.yaml",
+      "sha256": "94ca418dcdd5da764fb1b92b97ad29aa5cd06c70b51073152f1b9e85f7b30063",
+      "lines": 3467
+    },
+    "specs/egress-api.yaml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/specs/egress-api.yaml",
+      "sha256": "2ac077df442a3a9e12d99e517a4d2c13381e5b17657397aa31805d6f245acd22",
+      "lines": 762
+    },
+    "specs/diagnostic-api.yml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/specs/diagnostic-api.yml",
+      "sha256": "7f46984f625c53eaeb19b2ece9c87e82398d8b581d7e5461d15b2797fe7848b3",
+      "lines": 438
+    },
+    "docs/api/index.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/api/index.md",
+      "sha256": "f773ff888f290e913ba7b818d01cbf2d6dffbe0398d641ca6629ded5c3d87efc",
+      "lines": 236
+    },
+    "docs/api/implementation-compatibility.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/api/implementation-compatibility.md",
+      "sha256": "495d82c5756f04be262f308d2587083903b2ff7c7bad667a87930bf3c27263df",
+      "lines": 63
+    },
+    "server/opensandbox_server/api/schema.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/api/schema.py",
+      "sha256": "ca3cee22bb34b9bda3f1a317f80853fd743879608cfcffa0747e1b2865bfe909",
+      "lines": 1817
+    },
+    "server/opensandbox_server/main.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/main.py",
+      "sha256": "857d7a80ffa8e7141a1e404be5330f7c661367fa0ec908356d3abd2d88a8dc37",
+      "lines": 378
+    },
+    "server/opensandbox_server/startup_guard.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/startup_guard.py",
+      "sha256": "827486cfe24258abfa79c228e27e22263d5185931ba23f31e23bcce7b336eeb3",
+      "lines": 117
+    },
+    "server/opensandbox_server/api/lifecycle.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/api/lifecycle.py",
+      "sha256": "ad9cbc4454a2da206b623b4e5390835ac8142ababca12adb8efd30227b3c8558",
+      "lines": 618
+    },
+    "server/opensandbox_server/api/proxy.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/api/proxy.py",
+      "sha256": "afec873d747dd95e89758886e3f8e59acf0da11de254c67790b8b54106153c24",
+      "lines": 776
+    },
+    "server/opensandbox_server/services/validators.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/validators.py",
+      "sha256": "ac62de6ac05c3def7f8bd163fca682706776622362a7f8aa12b593e2a7376c2e",
+      "lines": 723
+    },
+    "docs/architecture/control-plane/server.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/control-plane/server.md",
+      "sha256": "9f424fd6690ad5b2af0b6e11ed3bea3f95bce4deffee594fe7b8e2f7df1d6640",
+      "lines": 77
+    },
+    "server/opensandbox_server/services/sandbox_service.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/sandbox_service.py",
+      "sha256": "66765d6734456d08c41d6bcd2f081467ba616905ea7d83afd51f077b17a05cdf",
+      "lines": 387
+    },
+    "server/opensandbox_server/services/runtime_resolver.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/runtime_resolver.py",
+      "sha256": "1cb44e14e1bbac818cf0417362168eb47718d914f2577fbebff1b8832724d86e",
+      "lines": 268
+    },
+    "server/opensandbox_server/services/snapshot_restore.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/snapshot_restore.py",
+      "sha256": "a647b644c04431fd15c6dc8108a087f0b446e9a19420b2dd4791dab9b5e8a646",
+      "lines": 112
+    },
+    "server/opensandbox_server/services/docker/networking.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/docker/networking.py",
+      "sha256": "32663308cbd9694180d3edd9b46230f0dcf04f4d78b4dcb62bb2c084df49dd44",
+      "lines": 762
+    },
+    "server/opensandbox_server/services/docker/metadata.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/docker/metadata.py",
+      "sha256": "e79bd8114cc51c62daef40254b75133848b8efce9b67134d5aa292245ab1b9f3",
+      "lines": 193
+    },
+    "server/opensandbox_server/services/docker/port_allocator.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/docker/port_allocator.py",
+      "sha256": "84404944d9e782e584133094f180f59aa951a37a7502baa214a2d614343dde44",
+      "lines": 177
+    },
+    "server/opensandbox_server/services/docker/snapshot_runtime.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/services/docker/snapshot_runtime.py",
+      "sha256": "728b099a9287d1fe183a05925e50b35b7f79332f7c4eb38f4f0be9eb05a10a1b",
+      "lines": 432
+    },
+    "docs/architecture/network/single-host-network.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/network/single-host-network.md",
+      "sha256": "26119581bfa0db51d69aa0ae8222b7497f0bcf3f4f1b24f42e89262ea9106927",
+      "lines": 79
+    },
+    "kubernetes/apis/sandbox/v1alpha1/batchsandbox_types.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/kubernetes/apis/sandbox/v1alpha1/batchsandbox_types.go",
+      "sha256": "940b79abdaf06aab6897a7d83c7f3b486a56de2c6ac6ecbb9632e06487aaf202",
+      "lines": 379
+    },
+    "kubernetes/apis/sandbox/v1alpha1/pool_types.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/kubernetes/apis/sandbox/v1alpha1/pool_types.go",
+      "sha256": "fb344ccd7b97f55adf922c0a194dae92e20aec2f12703b62e63e07c8e34cd4f8",
+      "lines": 154
+    },
+    "kubernetes/apis/sandbox/v1alpha1/sandboxsnapshot_types.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/kubernetes/apis/sandbox/v1alpha1/sandboxsnapshot_types.go",
+      "sha256": "145e71a45e8ef190ee652ad4b2c5375e3ce69e290067da7b01861102a8c000d8",
+      "lines": 206
+    },
+    "docs/getting-started/configuration.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/getting-started/configuration.md",
+      "sha256": "59c09d7c63e116352c49a08b70a2feb97a5143ae34e3fb63ca08b8ada12f23a1",
+      "lines": 113
+    },
+    "docs/architecture/fast-sandbox/index.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/index.md",
+      "sha256": "d1f232196eed8e7f743e43b7a966bc05eade84626bb846a884a6edbfeb07dbeb",
+      "lines": 56
+    },
+    "docs/architecture/fast-sandbox/scheduling.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/scheduling.md",
+      "sha256": "2732f5ad311ae9e485728e1f664e1fef6cb7a48cd70f3fd76b7ecb83806da931",
+      "lines": 40
+    },
+    "docs/architecture/fast-sandbox/networking.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/networking.md",
+      "sha256": "c6c92858e89d88e4d0ee5e4bf197b23a1c42477a4a917ff3006949c5753b5895",
+      "lines": 116
+    },
+    "docs/architecture/fast-sandbox/checkpoints.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/checkpoints.md",
+      "sha256": "9f089ecc6b1e1b4f06d8fa147b72ae1a00fe180f6ba3dcc2d881cffdf6c017d9",
+      "lines": 60
+    },
+    "docs/architecture/fast-sandbox/storage.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/storage.md",
+      "sha256": "6b84f9f672e456d54fc69fdecd135c22ddfa0a8e1b25357509f823296eabc808",
+      "lines": 81
+    },
+    "docs/architecture/fast-sandbox/firecracker.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/firecracker.md",
+      "sha256": "b9cec21a4a4c2e5ed76d77c0eb7c161b8386511a44e63c4f10d2afe504253a89",
+      "lines": 69
+    },
+    "components/execd/pkg/web/controller/command.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/execd/pkg/web/controller/command.go",
+      "sha256": "0f0e53bb1fdec1c8b140268e2b3e090748e7f041c484aaaa730d56305e1700e2",
+      "lines": 202
+    },
+    "components/execd/pkg/web/controller/pty_ws.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/execd/pkg/web/controller/pty_ws.go",
+      "sha256": "f90342fc4b722764f29a4196e8512d1b5a153b46182af3964d3dc2a1698b897d",
+      "lines": 743
+    },
+    "components/execd/pkg/web/model/codeinterpreting.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/execd/pkg/web/model/codeinterpreting.go",
+      "sha256": "ec31b6af3fd363041761491e2c4e61f2f18315e89d39edf4f141b8421d4a4d96",
+      "lines": 176
+    },
+    "docs/architecture/data-plane/execd.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/data-plane/execd.md",
+      "sha256": "6b4e3a8c67f046f39e0114e60829ff614ceba16887a559e26216d8cf02ab2e52",
+      "lines": 156
+    },
+    "docs/guides/isolation-sessions.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/isolation-sessions.md",
+      "sha256": "430460f2b870a94317d7ddc31cf9e2069bc6d9208b9c1891b89f9e40bc5d9a90",
+      "lines": 448
+    },
+    "components/ingress/pkg/proxy/header.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/ingress/pkg/proxy/header.go",
+      "sha256": "13bfe932fa1ce1c8c63d00fe0bc9e2cb04c2f5815c54e39e3e61fdf129e9ecaf",
+      "lines": 83
+    },
+    "components/ingress/pkg/proxy/connectivity/tracker.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/ingress/pkg/proxy/connectivity/tracker.go",
+      "sha256": "74943efc0e578bf069e6a5cc6fd2960ebab92dcacbb9b6d5108361c3c75d73ff",
+      "lines": 200
+    },
+    "docs/architecture/network/ingress.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/network/ingress.md",
+      "sha256": "24d751f1d7e180dfaed87215cf3f0e7353e4036a8ac58318c34053ec1552334d",
+      "lines": 87
+    },
+    "docs/guides/secure-access.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/secure-access.md",
+      "sha256": "2cf1760d24555edc019b3bd6836a424c5cd66f52bd5ab4b57027e2af51a84d32",
+      "lines": 154
+    },
+    "components/egress/pkg/policy/policy.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/egress/pkg/policy/policy.go",
+      "sha256": "005a657ff95a4f1912872120e45bd9c3db741899cc07904612bfa7b8158e6df3",
+      "lines": 370
+    },
+    "components/egress/pkg/policy/always_rules.go": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/components/egress/pkg/policy/always_rules.go",
+      "sha256": "925d4faa225cafcae14cb546ef81a55f00a7752553fd406661dcf54f2873fa92",
+      "lines": 317
+    },
+    "docs/architecture/network/egress.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/network/egress.md",
+      "sha256": "b07ec107ef6f4d673bb347fc355ec4b90b1b8528694d316fadd9295ea0d365dc",
+      "lines": 125
+    },
+    "docs/guides/credential-vault.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/credential-vault.md",
+      "sha256": "86a6969eb082668e880c7b0835af7c54dce57e8e65ba1674e511943fab1ad5c5",
+      "lines": 455
+    },
+    "oseps/0012-credential-vault.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/oseps/0012-credential-vault.md",
+      "sha256": "ebf6148af0bbc135b51e82af3294fcaaeefaf0007218a8d238913a6fcda710e4",
+      "lines": 1300
+    },
+    "oseps/0022-multi-sandbox-egress-control-plane.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/oseps/0022-multi-sandbox-egress-control-plane.md",
+      "sha256": "5107b16c1008a8eea91cf3322ef6225708619e31b3aa3681d09281a31f5f7a8d",
+      "lines": 419
+    },
+    "server/opensandbox_server/api/credential_vault.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/api/credential_vault.py",
+      "sha256": "529b575865c6a8a86e9c0ce67dbe51d37d3698e6129972628fbaa8de395298da",
+      "lines": 135
+    },
+    "docs/guides/pause-resume.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/pause-resume.md",
+      "sha256": "e4aabc4669d6e8012ee69893235d2297f3a764c790dfd31d22f4eb223be7594e",
+      "lines": 608
+    },
+    "docs/guides/client-pool.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/client-pool.md",
+      "sha256": "c114bb3cd891b67863f4f463913fef66e7b3f16cdb1accd3b6d002cde4a45b88",
+      "lines": 413
+    },
+    "server/opensandbox_server/integrations/idle_pause/decision.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/integrations/idle_pause/decision.py",
+      "sha256": "4a9d6938393164f6641b767438f74ebc3918c6054f1791592d8cf0e5c343c905",
+      "lines": 78
+    },
+    "server/opensandbox_server/integrations/renew_intent/consumer.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/integrations/renew_intent/consumer.py",
+      "sha256": "43346287cf845a1cde38ea88a38e9ce410f6ed36ea304c22cb69154a159a7380",
+      "lines": 329
+    },
+    "docs/guides/multi-tenancy.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/multi-tenancy.md",
+      "sha256": "556f0ab28b1de7b39673c34c6e2589bcda76784d9fe96f0f6ed499f5200dc9d5",
+      "lines": 294
+    },
+    "server/opensandbox_server/middleware/auth.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/middleware/auth.py",
+      "sha256": "ea0298f6d91e3b66d55a7f4f93e38c19a609dc142fb0d1f58a2f200c95da0731",
+      "lines": 153
+    },
+    "server/opensandbox_server/tenants/file_provider.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/tenants/file_provider.py",
+      "sha256": "24cfaec2e4d39e6ab27824fb969326b8ab320c3fc3fa87bae228cbb8e361669d",
+      "lines": 195
+    },
+    "docs/guides/network-isolation.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/network-isolation.md",
+      "sha256": "7b358da7a75ef52a7704fb17316b8ae8c6c154c5becb9c890129f11c583843ac",
+      "lines": 195
+    },
+    "components/execd/pkg/isolation/": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/tree/c2f55b20e945d89efe3d35220942a997a3551751/components/execd/pkg/isolation",
+      "sha256": "5a24b609e659eba6fd10fa1b78fdf4ab742fbe181bfadad0d3fdc145ac413556",
+      "lines": 9614,
+      "files": 25
+    },
+    "oseps/0004-secure-container-runtime.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/oseps/0004-secure-container-runtime.md",
+      "sha256": "167af9de99bd1f5467dbbd4410af6bd827886ff35470871e4a590fceca2d02a3",
+      "lines": 794
+    },
+    "docs/architecture/data-plane/node-agent.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/data-plane/node-agent.md",
+      "sha256": "afab3de25655ab278e7b58a79820554d24927e3687c5615ec030b5945e31c53e",
+      "lines": 90
+    },
+    "docs/guides/telemetry.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/guides/telemetry.md",
+      "sha256": "d248a4a880657d8fe2a402e20b1149fdbaaa313871756f833a119a6ea0c0efb9",
+      "lines": 424
+    },
+    "components/nodeagent/pkg/marker/": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/tree/c2f55b20e945d89efe3d35220942a997a3551751/components/nodeagent/pkg/marker",
+      "sha256": "e2fed55a5c36ddf8b1e2d943b418c4bb9b51d07e43564c311e9134717644b481",
+      "lines": 656,
+      "files": 2
+    },
+    "server/opensandbox_server/api/devops.py": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/server/opensandbox_server/api/devops.py",
+      "sha256": "ee3c00d226dd2418b575391ba51e06353c6c59fd6952d69cfa2c97d3d7da409a",
+      "lines": 233
+    },
+    "docs/deployment/index.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/deployment/index.md",
+      "sha256": "dfdf7759dd953ba1576faf40c45a1645fcb5d5da661ffb5ab513d4aab493c709",
+      "lines": 384
+    },
+    "manifests/charts/controller/values.yaml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/manifests/charts/controller/values.yaml",
+      "sha256": "8ebce8032b73beb800ed4861919e0e4c5bbb36ac1df2b8d7bdc1db9148a641a2",
+      "lines": 210
+    },
+    "manifests/charts/server/values.yaml": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/manifests/charts/server/values.yaml",
+      "sha256": "d27f07e17745c3bf7b4570b38f421a27b741d12a746087ffa35a197891970c7d",
+      "lines": 136
+    },
+    "docs/community/release-verification.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/community/release-verification.md",
+      "sha256": "cecc6affa6ce62ce49098c72a1b2621f48f5445967ed6486e376c768c25ce0ba",
+      "lines": 262
+    },
+    "docs/architecture/fast-sandbox/ha.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/architecture/fast-sandbox/ha.md",
+      "sha256": "92555597701d46e1564b1b995a503e023bcf14392600d9f177f59d5e8efc846e",
+      "lines": 40
+    },
+    "AGENTS.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/AGENTS.md",
+      "sha256": "dec90f8d5ad2857ef93d095b94731075507f466a3c34914349e0d544ec118dc1",
+      "lines": 119
+    },
+    "docs/README.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/docs/README.md",
+      "sha256": "40f2a34008479c16cdf7f128196d7c3abd0c5f7f6aa6e76405a89c057546b079",
+      "lines": 26
+    },
+    "specs/README.md": {
+      "url": "https://github.com/opensandbox-group/OpenSandbox/blob/c2f55b20e945d89efe3d35220942a997a3551751/specs/README.md",
+      "sha256": "1eb6e6085f5a3a67ebe71e74d2ebc79ef7fcfd6b881138733ab07f17370e1ee6",
+      "lines": 4
+    }
+  },
+  "chapters": {
+    "00-preface": [
+      "README.md",
+      "CHARTER.md",
+      "ROADMAP.md"
+    ],
+    "01-requirements": [
+      "docs/guides/secure-container.md",
+      "docs/architecture/fast-sandbox/performance.md",
+      "docs/architecture/control-plane/operator.md",
+      "ROADMAP.md"
+    ],
+    "02-architecture": [
+      "docs/architecture/index.md",
+      "server/opensandbox_server/services/factory.py",
+      "server/opensandbox_server/services/composite_service.py",
+      "manifests/charts/opensandbox/Chart.yaml"
+    ],
+    "03-contracts": [
+      "specs/sandbox-lifecycle.yml",
+      "specs/execd-api.yaml",
+      "specs/egress-api.yaml",
+      "specs/diagnostic-api.yml",
+      "docs/api/index.md",
+      "docs/api/implementation-compatibility.md",
+      "server/opensandbox_server/api/schema.py"
+    ],
+    "04-lifecycle-server": [
+      "server/opensandbox_server/main.py",
+      "server/opensandbox_server/startup_guard.py",
+      "server/opensandbox_server/api/lifecycle.py",
+      "server/opensandbox_server/api/proxy.py",
+      "server/opensandbox_server/services/validators.py",
+      "docs/architecture/control-plane/server.md"
+    ],
+    "05-runtime-routing": [
+      "server/opensandbox_server/services/sandbox_service.py",
+      "server/opensandbox_server/services/factory.py",
+      "server/opensandbox_server/services/composite_service.py",
+      "server/opensandbox_server/services/runtime_resolver.py",
+      "server/opensandbox_server/services/snapshot_restore.py"
+    ],
+    "06-docker": [
+      "server/opensandbox_server/services/docker/networking.py",
+      "server/opensandbox_server/services/docker/metadata.py",
+      "server/opensandbox_server/services/docker/port_allocator.py",
+      "server/opensandbox_server/services/docker/snapshot_runtime.py",
+      "docs/architecture/network/single-host-network.md"
+    ],
+    "07-kubernetes": [
+      "kubernetes/apis/sandbox/v1alpha1/batchsandbox_types.go",
+      "kubernetes/apis/sandbox/v1alpha1/pool_types.go",
+      "kubernetes/apis/sandbox/v1alpha1/sandboxsnapshot_types.go",
+      "docs/architecture/control-plane/operator.md",
+      "docs/getting-started/configuration.md"
+    ],
+    "08-fast-sandbox": [
+      "docs/architecture/fast-sandbox/index.md",
+      "docs/architecture/fast-sandbox/scheduling.md",
+      "docs/architecture/fast-sandbox/networking.md",
+      "docs/architecture/fast-sandbox/checkpoints.md",
+      "docs/architecture/fast-sandbox/storage.md",
+      "docs/architecture/fast-sandbox/firecracker.md",
+      "docs/architecture/fast-sandbox/performance.md"
+    ],
+    "09-execd": [
+      "components/execd/pkg/web/controller/command.go",
+      "components/execd/pkg/web/controller/pty_ws.go",
+      "components/execd/pkg/web/model/codeinterpreting.go",
+      "docs/architecture/data-plane/execd.md",
+      "docs/guides/isolation-sessions.md"
+    ],
+    "10-ingress": [
+      "components/ingress/pkg/proxy/header.go",
+      "components/ingress/pkg/proxy/connectivity/tracker.go",
+      "docs/architecture/network/ingress.md",
+      "docs/guides/secure-access.md"
+    ],
+    "11-egress": [
+      "components/egress/pkg/policy/policy.go",
+      "components/egress/pkg/policy/always_rules.go",
+      "docs/architecture/network/egress.md"
+    ],
+    "12-credential-vault": [
+      "docs/guides/credential-vault.md",
+      "oseps/0012-credential-vault.md",
+      "oseps/0022-multi-sandbox-egress-control-plane.md",
+      "server/opensandbox_server/api/credential_vault.py"
+    ],
+    "13-lifecycle-state": [
+      "docs/guides/pause-resume.md",
+      "docs/guides/client-pool.md",
+      "server/opensandbox_server/integrations/idle_pause/decision.py",
+      "server/opensandbox_server/integrations/renew_intent/consumer.py"
+    ],
+    "14-identity-tenancy": [
+      "docs/guides/multi-tenancy.md",
+      "server/opensandbox_server/middleware/auth.py",
+      "server/opensandbox_server/tenants/file_provider.py"
+    ],
+    "15-isolation": [
+      "docs/guides/secure-container.md",
+      "docs/guides/network-isolation.md",
+      "components/execd/pkg/isolation/",
+      "oseps/0004-secure-container-runtime.md"
+    ],
+    "16-observability": [
+      "docs/architecture/data-plane/node-agent.md",
+      "docs/guides/telemetry.md",
+      "components/nodeagent/pkg/marker/",
+      "server/opensandbox_server/api/devops.py"
+    ],
+    "17-operations": [
+      "docs/deployment/index.md",
+      "manifests/charts/controller/values.yaml",
+      "manifests/charts/server/values.yaml",
+      "docs/community/release-verification.md"
+    ],
+    "18-tradeoffs": [
+      "docs/api/implementation-compatibility.md",
+      "docs/architecture/fast-sandbox/ha.md",
+      "server/opensandbox_server/services/composite_service.py",
+      "ROADMAP.md"
+    ],
+    "19-wrap-up": [
+      "docs/architecture/index.md",
+      "server/opensandbox_server/api/lifecycle.py",
+      "docs/api/index.md"
+    ],
+    "appendix-map": [
+      "AGENTS.md",
+      "docs/README.md",
+      "specs/README.md"
+    ]
+  },
+  "method": "Static reading of source, OpenAPI contracts, architecture docs, guides and OSEPs. OpenSandbox was not deployed or executed; no performance or security measurements were made."
+}

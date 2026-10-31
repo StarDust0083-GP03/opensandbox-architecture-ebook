@@ -1,0 +1,184 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>可观测性与诊断：让失败留下证据 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="16-observability"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#第一层-状态本身就是证据">第一层：状态本身就是证据</a></li><li><a href="#第二层-请求-id-把链路串起来">第二层：请求 ID 把链路串起来</a></li><li><a href="#第三层-指标-以及它的基数纪律">第三层：指标，以及它的基数纪律</a></li><li><a href="#第四层-诊断-api-与它的两种投递">第四层：诊断 API 与它的两种投递</a></li><li><a href="#第五层-节点级采集-让日志活过沙箱">第五层：节点级采集，让日志活过沙箱</a></li><li><a href="#一个整体判断">一个整体判断</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="可观测性与诊断-让失败留下证据">可观测性与诊断：让失败留下证据</h1><p>沙箱平台有一个特殊的观测难题：<strong>被观测的东西是短命的</strong>。一个沙箱活了 90 秒，跑了一堆命令，然后被删掉。它打印的一切跟着消失。如果这时用户说「Agent 报错了」，你手上什么都没有。</p>
+<p>OpenSandbox 为此准备了四条互不重叠的证据链：状态与原因码、请求 ID、指标、以及可选的节点级采集。这一篇按「出问题时你会按什么顺序查」来组织。</p>
+<h2 id="第一层-状态本身就是证据">第一层：状态本身就是证据</h2><p>最便宜的证据在 API 响应里。沙箱对象带 <code>state</code> / <code>reason</code> / <code>message</code> / <code>lastTransitionAt</code>，四者合起来能回答大部分初级问题：是镜像问题、调度问题，还是我自己操作错了。</p>
+<p>配套的还有 diagnostic 契约里的<strong>结构化路由上下文</strong>：<code>GET /sandboxes/{id}/diagnostics/context</code> 返回运行时后端与后端定义的诊断标识符。</p>
+<table>
+<thead>
+<tr>
+<th>后端</th>
+<th>context 内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker</td>
+<td>后端名 <code>docker</code> + 容器标识符</td>
+</tr>
+<tr>
+<td>Kubernetes</td>
+<td>命名空间/工作负载标识符 + 已分配的 Pod 名（如果有）</td>
+</tr>
+<tr>
+<td>Fast Sandbox</td>
+<td><code>fast-sandbox</code> + 空标识符 map</td>
+</tr>
+</tbody></table>
+<p>第三条的「空 map」不是缺陷，是诚实：Fast Sandbox 的运行时标识不在 Kubernetes 资源里，适配层拿不到。文档还说明 context 不需要 scope、不依赖 execd 就绪，而且 Kubernetes 的 context 可以在 Pod 分配之前查询。</p>
+<h2 id="第二层-请求-id-把链路串起来">第二层：请求 ID 把链路串起来</h2><p>服务器有 <code>RequestIdMiddleware</code>，<code>X-Request-ID</code> 是可选请求头——不传就自己生成。日志、指标、诊断都带这个 ID。</p>
+<p>这个机制很小，但它是跨组件排障的前提：客户端报了一个 ID，你才能在控制面日志、ingress 日志、execd 日志里找同一条链路。没有它，「用户说失败了」和「服务端说成功了」这种对话会永远卡住。</p>
+<h2 id="第三层-指标-以及它的基数纪律">第三层：指标，以及它的基数纪律</h2><p>Go 组件共享一套 OTLP 配置（endpoint、关闭开关、聚合时序），Python 的生命周期服务器另有 <code>[otel]</code> 段。</p>
+<p>各组件的指标面不完全一样，我按「谁能回答什么问题」列：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>能回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生命周期服务器</td>
+<td>创建延迟、请求量、错误分布（HTTP metrics 中间件）</td>
+</tr>
+<tr>
+<td>Kubernetes 控制器</td>
+<td>分配路径指标、容量指标，以及 controller-runtime 复用的指标</td>
+</tr>
+<tr>
+<td>execd</td>
+<td>沙箱 CPU/内存快照与实时流、执行耗时、OOM kill 观测</td>
+</tr>
+<tr>
+<td>egress sidecar</td>
+<td>被拒请求数、DNS 查询结果、nftables 更新失败、进程资源</td>
+</tr>
+<tr>
+<td>ingress</td>
+<td>HTTP 请求与路由、上游连通性分类</td>
+</tr>
+<tr>
+<td>node agent</td>
+<td>记录/字节数、有意丢弃、重试、队列深度</td>
+</tr>
+</tbody></table>
+<p>其中两条设计纪律值得单独记住。</p>
+<p><strong>拒绝与失败必须分开计。</strong> egress 把「被策略拒绝」与「解析器失败」做成两个独立计数器。文档的原话是：对错误的那个告警会把诊断结论完全颠倒。前者是策略在工作，后者是系统坏了——用同一个指标，值班的人永远分不清。</p>
+<p><strong>基数要有界。</strong> egress 不把查询的域名或目的地做成 label；node agent 不把沙箱或 Pod 标识做成 label。这两条限制会让某些排查变难（你无法直接按域名聚合），但换来的是指标系统不会因为用户输入而爆炸。这是一个典型的「先保证可用，再用日志补细节」的取舍。</p>
+<h2 id="第四层-诊断-api-与它的两种投递">第四层：诊断 API 与它的两种投递</h2><p><code>specs/diagnostic-api.yml</code> 定义了一条 best-effort 的证据通道：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">GET /sandboxes/{id}/diagnostics/context    后端与标识符
+GET /sandboxes/{id}/diagnostics/logs       日志内容描述符（scope 必填）
+GET /sandboxes/{id}/diagnostics/events     事件内容描述符（scope 必填）</code></pre></div><p><code>scope</code> 的取值按后端不同：</p>
+<table>
+<thead>
+<tr>
+<th>后端</th>
+<th>logs</th>
+<th>events</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker</td>
+<td><code>container</code> / <code>all</code></td>
+<td><code>runtime</code> / <code>all</code></td>
+</tr>
+<tr>
+<td>Kubernetes</td>
+<td><code>container</code> / <code>all</code></td>
+<td><code>runtime</code> / <code>all</code></td>
+</tr>
+<tr>
+<td>Fast Sandbox</td>
+<td>未实现</td>
+<td><code>runtime</code> / <code>all</code></td>
+</tr>
+</tbody></table>
+<p>不支持返回 <code>DIAGNOSTICS_SCOPE_UNSUPPORTED</code>；后端没实现返回 <code>501 DIAGNOSTICS_NOT_IMPLEMENTED</code>；未知沙箱 404。</p>
+<p>响应有两种投递方式：<code>delivery: inline</code> 带 <code>content</code>，或 <code>delivery: url</code> 带 <code>contentUrl</code> 与可选过期时间。这里有两条使用纪律，文档写得很直接：</p>
+<ul>
+<li><strong>SDK 不会去下载 URL 内容</strong>；要自己取。</li>
+<li><strong>先看 <code>truncated</code> 与 <code>warnings</code></strong>，再决定是否把结果当成完整证据。</li>
+</ul>
+<p>第二条是很多排障误判的来源：诊断数据本身可能是截断的，把一个截断的日志当成「全部输出」会得出错误结论。</p>
+<p>除了这条契约化的通道，服务器还有一套面向运维与 AI 排障的<strong>纯文本 devops 路由</strong>（<code>api/devops.py</code>），CLI 的 <code>osb devops</code> 就调用它们。契约通道给程序用，纯文本通道给人（或给读文本的 Agent）用——这个分工很实际。</p>
+<h2 id="第五层-节点级采集-让日志活过沙箱">第五层：节点级采集，让日志活过沙箱</h2><p>如果沙箱删了就什么都没了，那上面四层都只能在「还活着」的时候用。Node Agent 是补这一块的：一个可选 DaemonSet，每台 Linux 节点一个采集器，watch 该节点上每个沙箱 Pod 的输出并送到持久存储。</p>
+<p>它的设计里有四个决定值得学。</p>
+<p><strong>源与 sink 是编译期注册表，不是插件。</strong> 一个构建嵌入它支持的源，配置只在其中选择；未知名字让 Agent <strong>不 ready</strong> 而不是启动一个残缺管道。运行时不加载任何代码。这条设计对供应链安全很重要：一个能动态加载采集插件的守护进程，等于给集群装了一个远程代码执行入口。</p>
+<p><strong>队列有界，丢弃策略明确。</strong> 默认 <code>block</code> 策略在 sink 变慢时对源施加背压——采集变慢，什么也不丢。另一条 <code>drop</code> 策略更硬地限制内存，并把丢弃记录进流的完整性标记。全局内存预算、每沙箱队列预算、可选每沙箱限速，防止一个吵闹的沙箱饿死整节点。</p>
+<p><strong>失败即关闭，绝不崩溃循环。</strong> 非法配置、损坏或不匹配的恢复状态、不可用的目标，会让进程<strong>活着但不 ready</strong>，并报出命名原因。它从不静默重置并重新采集，也从不在未验证的目标上推进进度。</p>
+<p><strong>对象布局镜像集群现实。</strong> 每条流成为一个对象族：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">&lt;cluster&gt;/&lt;namespace&gt;/&lt;sandbox_id&gt;/&lt;pod_uid&gt;/
+  sandbox.log
+  sandbox.&lt;generation&gt;.log
+  sandbox.finalized.&lt;revision&gt;.json</code></pre></div><p><code>finalized</code> 标记是流的「结案陈词」：一份累积的、不可变的快照，列出每个已关闭对象的 size 与 checksum，消费者可以校验。它回答的是事故之后唯一重要的问题：<strong>这些日志我能信吗？</strong></p>
+<table>
+<thead>
+<tr>
+<th>标记状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>complete</code></td>
+<td>没有有意丢弃或已知缺口；至少一次投递仍可能含重复</td>
+</tr>
+<tr>
+<td><code>complete-with-drops</code></td>
+<td>至少一条被有意丢弃，受影响的区间已记录</td>
+</tr>
+<tr>
+<td><code>incomplete</code></td>
+<td>至少一个已知区间读不到，或其覆盖无法证明</td>
+</tr>
+</tbody></table>
+<p>这份诚实的代价是「看起来更差」：Agent 重启后恢复的数据照样投递，但下一个标记是 <code>incomplete</code>，因为无法证明一次短命的 rotation 没有在中断期间消失。消费者拿到的是真相，不是乐观。</p>
+<p>投递语义是<strong>至少一次、绝不静默丢失</strong>：游标只在 sink 持久接受且源确认后才推进；finalization 本身是两阶段、可崩溃恢复的事务。重复可能，未记账的丢失不允许。</p>
+<p>还有两个运维边界：<strong>采集凭据只给 append/read/write，从不给 delete</strong>；删除永远走单独的离线工具。<strong>保留策略是运维的事</strong>，Agent 只采集。桶开了版本控制或 WORM、或存在重叠的生命周期规则，会被当作永久启动错误拒绝——因为那会破坏 Agent 的完整性假设。</p>
+<h2 id="一个整体判断">一个整体判断</h2><p>把五层放在一起看，这个项目的可观测性有一个一致的态度：<strong>宁可承认不确定，也不给一个看起来漂亮的结论。</strong></p>
+<p>证据都带边界：状态带 reason、诊断带 truncated、日志带 complete/incomplete、指标拒绝高基数、指标把「拒绝」和「坏了」分开、SDK 不替你下载 URL。这套态度在实践中意味着更多次「不确定」，但每一次都是可复核的。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>五层证据：状态与原因码、请求 ID、指标、诊断 API、节点级采集。</li>
+<li><code>diagnostics/context</code> 不需要 scope，可在 Pod 分配前查询；Fast Sandbox 的标识 map 为空是诚实而非缺陷。</li>
+<li>指标有两条纪律：拒绝与失败分开计、label 基数有界。</li>
+<li>诊断 API 是 best-effort：先看 <code>truncated</code>/<code>warnings</code>，SDK 不下载 URL。</li>
+<li>Node Agent 用编译期源/sink、有界队列、fail-closed readiness 与完整性标记，把「能信吗」变成可校验的字段。</li>
+<li>采集凭据没有 delete 权限，保留策略在采集之外。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/middleware/request_id.py</code></td>
+<td>请求 ID 的生成与透传</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/middleware/http_metrics.py</code></td>
+<td>HTTP 指标</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/devops.py</code></td>
+<td>纯文本排障路由</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/diagnostics.py</code></td>
+<td>诊断上下文与内容描述符</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/marker/</code></td>
+<td>完整性标记</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/pipeline/</code></td>
+<td>有界队列与背压</td>
+</tr>
+<tr>
+<td><code>docs/guides/telemetry.md</code></td>
+<td>各组件指标清单与配置</td>
+</tr>
+<tr>
+<td><code>docs/architecture/data-plane/node-agent.md</code></td>
+<td>采集语义与保证</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="15-isolation.html"><small>上一篇</small>隔离与加固：从 runc 到 microVM</a><a href="17-operations.html"><small>下一篇</small>运维与失败：这套系统承诺什么，不承诺什么</a></nav></main><script src="../assets/wiki.js"></script></body></html>

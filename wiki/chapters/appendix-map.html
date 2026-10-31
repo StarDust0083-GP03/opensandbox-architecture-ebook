@@ -1,0 +1,449 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>附录 A：源码阅读地图 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="appendix-map"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#三条阅读路线">三条阅读路线</a></li><li><a href="#按角色划分">按角色划分</a></li><li><a href="#规模参考">规模参考</a></li><li><a href="#文档地图">文档地图</a></li></ol></details><article class="content"><h1 id="附录-a-源码阅读地图">附录 A：源码阅读地图</h1><p>这份地图按「读它的目的」组织，不按目录。全部路径相对于上游提交 <code>c2f55b20e945d89efe3d35220942a997a3551751</code>。</p>
+<h2 id="三条阅读路线">三条阅读路线</h2><p><strong>路线一：只想把它跑起来并理解调用方视角（半天）</strong></p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">README.md
+docs/getting-started/index.md
+docs/getting-started/configuration.md
+docs/api/index.md
+sdks/sandbox/python/README.md（或你用的语言）
+cli/README.md</code></pre></div><p>读完你应该能回答：创建沙箱要哪些参数、endpoint 怎么用、命令输出怎么解析。</p>
+<p><strong>路线二：要评估或自建执行层（两三天）</strong></p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">docs/architecture/index.md
+docs/architecture/control-plane/server.md
+docs/architecture/control-plane/operator.md
+docs/architecture/data-plane/execd.md
+docs/architecture/network/ingress.md
+docs/architecture/network/egress.md
+docs/api/implementation-compatibility.md
+ROADMAP.md</code></pre></div><p>再挑一个后端深入：单机看 <code>single-host-network.md</code>，集群看 <code>fast-sandbox/*</code>。</p>
+<p><strong>路线三：要改代码（一周以上）</strong></p>
+<p>按本书顺序读，每章末尾的「源码入口」表就是路线。下面给一张按角色划分的入口表。</p>
+<h2 id="按角色划分">按角色划分</h2><h3 id="控制面-python">控制面（Python）</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>行数级</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/main.py</code></td>
+<td>~378</td>
+<td>lifespan、中间件、路由注册、启动断言</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/startup_guard.py</code></td>
+<td>~150</td>
+<td>无 API key 时的确认策略</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/lifecycle.py</code></td>
+<td>~618</td>
+<td>创建/查询/删除/暂停路由与校验顺序</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/proxy.py</code></td>
+<td>~776</td>
+<td>代理头处理、<code>Location</code> 重写、WebSocket</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/schema.py</code></td>
+<td>~1817</td>
+<td>契约的 Pydantic 落地</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/sandbox_service.py</code></td>
+<td>~387</td>
+<td>13 个抽象方法</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/factory.py</code></td>
+<td>~77</td>
+<td>配置到实现</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/composite_service.py</code></td>
+<td>~188</td>
+<td>前缀分发</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/validators.py</code></td>
+<td>~723</td>
+<td>请求侧全部规则</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/snapshot_service.py</code></td>
+<td>~928</td>
+<td>公开快照状态机</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/repositories/</code></td>
+<td>—</td>
+<td>SQLite/PostgreSQL 两套适配</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/tenants/</code></td>
+<td>—</td>
+<td>file/http 租户提供方</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/integrations/idle_pause/</code></td>
+<td>~11 文件</td>
+<td>空闲暂停全流程</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/integrations/renew_intent/</code></td>
+<td>~9 文件</td>
+<td>续期意图</td>
+</tr>
+</tbody></table>
+<h3 id="docker-后端">Docker 后端</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>services/docker/docker_service.py</code></td>
+<td>生命周期主流程（最大的一块）</td>
+</tr>
+<tr>
+<td><code>services/docker/networking.py</code></td>
+<td>网络模式、sidecar 关联、egress 仅 bridge</td>
+</tr>
+<tr>
+<td><code>services/docker/port_allocator.py</code></td>
+<td>宿主端口分配</td>
+</tr>
+<tr>
+<td><code>services/docker/metadata.py</code></td>
+<td>保留标签前缀</td>
+</tr>
+<tr>
+<td><code>services/docker/volumes.py</code></td>
+<td>卷归属与 OSSFS</td>
+</tr>
+<tr>
+<td><code>services/docker/snapshot_runtime.py</code></td>
+<td>commit 本地镜像</td>
+</tr>
+<tr>
+<td><code>services/docker/windows_profile.py</code></td>
+<td>Windows 差异</td>
+</tr>
+</tbody></table>
+<h3 id="kubernetes-后端与控制器">Kubernetes 后端与控制器</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/services/k8s/kubernetes_service.py</code></td>
+<td>服务器侧集成</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/k8s/</code></td>
+<td>provider、endpoint 解析、卷/egress 助手、informer</td>
+</tr>
+<tr>
+<td><code>kubernetes/apis/sandbox/*/batchsandbox_types.go</code></td>
+<td><code>BatchSandboxSpec</code></td>
+</tr>
+<tr>
+<td><code>kubernetes/apis/sandbox/*/pool_types.go</code></td>
+<td>容量模型字段</td>
+</tr>
+<tr>
+<td><code>kubernetes/apis/sandbox/*/sandboxsnapshot_types.go</code></td>
+<td>快照记录与状态</td>
+</tr>
+<tr>
+<td><code>kubernetes/internal/controller/batchsandbox_controller.go</code></td>
+<td>Pod 扩缩、任务、过期、暂停交接</td>
+</tr>
+<tr>
+<td><code>kubernetes/internal/controller/pool_controller.go</code></td>
+<td>缓冲区收敛、分配注解</td>
+</tr>
+<tr>
+<td><code>kubernetes/internal/controller/poolassign/</code></td>
+<td>谓词与打分插件</td>
+</tr>
+<tr>
+<td><code>kubernetes/internal/controller/sandboxsnapshot_controller.go</code></td>
+<td>commit Job</td>
+</tr>
+</tbody></table>
+<h3 id="fast-sandbox-适配">Fast Sandbox 适配</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/services/fast_sandbox/service.py</code></td>
+<td>创建、暂停/恢复、端点</td>
+</tr>
+<tr>
+<td><code>docs/architecture/fast-sandbox/index.md</code></td>
+<td>外部平台的组件全景</td>
+</tr>
+<tr>
+<td><code>docs/architecture/fast-sandbox/scheduling.md</code></td>
+<td>Fastlet 与放置</td>
+</tr>
+<tr>
+<td><code>docs/architecture/fast-sandbox/networking.md</code></td>
+<td>签名 scope 与 subject</td>
+</tr>
+<tr>
+<td><code>docs/architecture/fast-sandbox/checkpoints.md</code></td>
+<td>检查点与快照</td>
+</tr>
+</tbody></table>
+<h3 id="数据面-go">数据面（Go）</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>components/execd/pkg/web/router.go</code></td>
+<td>全部路由（含未进契约的 <code>/pty</code>）</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/command.go</code></td>
+<td>命令执行与 SSE</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/model/codeinterpreting.go</code></td>
+<td>事件模型</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/sse.go</code></td>
+<td>流式写入</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/filesystem_upload.go</code></td>
+<td>暂存 + rename</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/pty_ws.go</code></td>
+<td>PTY 与子协议认证</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/isolation/</code></td>
+<td>bubblewrap 会话</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/runtime/</code></td>
+<td>加固 launcher、capabilities</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/jupyter/</code></td>
+<td>内核与执行</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/binding/</code></td>
+<td>per-allocation 绑定</td>
+</tr>
+</tbody></table>
+<h3 id="网络">网络</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>components/ingress/pkg/proxy/header.go</code></td>
+<td>路由/续期/逐跳头常量</td>
+</tr>
+<tr>
+<td><code>components/ingress/pkg/proxy/</code></td>
+<td>路由解析、WebSocket、错误映射</td>
+</tr>
+<tr>
+<td><code>components/ingress/pkg/proxy/connectivity/</code></td>
+<td>连接分类与 DEGRADED</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/policy/policy.go</code></td>
+<td>规则模型</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/policy/always_rules.go</code></td>
+<td>平台覆盖与端口地板</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/dnsproxy/</code></td>
+<td>DNS 过滤与地址记录</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/nftables/</code></td>
+<td>集合与原子替换</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/credentialvault/</code></td>
+<td>vault 与绑定</td>
+</tr>
+<tr>
+<td><code>components/egress/mitmscripts/</code></td>
+<td>请求改写与路径守卫</td>
+</tr>
+<tr>
+<td><code>components/egress/pkg/subject/</code></td>
+<td>fast-sandbox subject 状态机</td>
+</tr>
+</tbody></table>
+<h3 id="采集与观测">采集与观测</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>components/nodeagent/pkg/source/containerlogs/</code></td>
+<td>kubelet 日志跟随</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/source/syscalls/</code></td>
+<td>eBPF 系统调用记录</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/sink/oss/</code></td>
+<td>对象存储投递</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/marker/</code></td>
+<td>完整性标记</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/pkg/pipeline/</code></td>
+<td>有界队列与背压</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/diagnostics.py</code></td>
+<td>诊断描述符</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/devops.py</code></td>
+<td>纯文本排障路由</td>
+</tr>
+</tbody></table>
+<h3 id="sdk-与工具">SDK 与工具</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>sdks/sandbox/python/src/opensandbox/sandbox.py</code></td>
+<td><code>create</code> / <code>connect</code> / 高级方法</td>
+</tr>
+<tr>
+<td><code>sdks/sandbox/python/src/opensandbox/services/</code></td>
+<td>生命周期、execd、egress 三套客户端</td>
+</tr>
+<tr>
+<td><code>sdks/sandbox/python/src/opensandbox/pool*.py</code></td>
+<td>客户端池与状态存储</td>
+</tr>
+<tr>
+<td><code>sdks/code-interpreter/python/</code></td>
+<td>代码解释器高层封装</td>
+</tr>
+<tr>
+<td><code>sdks/mcp/sandbox/python/src/opensandbox_mcp/server.py</code></td>
+<td>MCP 工具面</td>
+</tr>
+<tr>
+<td><code>cli/src/opensandbox_cli/</code></td>
+<td><code>osb</code> 命令实现</td>
+</tr>
+</tbody></table>
+<h2 id="规模参考">规模参考</h2><p>按 <code>go/py/ts/java/cs</code> 计（<code>wc -l</code> 汇总，含注释与生成物）：</p>
+<table>
+<thead>
+<tr>
+<th>区域</th>
+<th>量级</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>sdks/sandbox</code></td>
+<td>~20 万行</td>
+</tr>
+<tr>
+<td><code>components/egress</code></td>
+<td>~9.6 万行</td>
+</tr>
+<tr>
+<td><code>server</code></td>
+<td>~8.4 万行</td>
+</tr>
+<tr>
+<td><code>components/execd</code></td>
+<td>~6.3 万行</td>
+</tr>
+<tr>
+<td><code>components/nodeagent</code></td>
+<td>~2.4 万行</td>
+</tr>
+<tr>
+<td><code>components/ingress</code></td>
+<td>~1.5 万行</td>
+</tr>
+<tr>
+<td><code>cli</code></td>
+<td>~1 万行</td>
+</tr>
+</tbody></table>
+<p>SDK 体量大主要来自五种语言与生成代码，不代表逻辑复杂度；<code>kubernetes/</code> 目录行数中等但信息密度最高（CRD 语义 + reconcile 不变量）。</p>
+<h2 id="文档地图">文档地图</h2><table>
+<thead>
+<tr>
+<th>目录</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>docs/architecture/</code></td>
+<td>分层架构：control-plane / data-plane / network / fast-sandbox</td>
+</tr>
+<tr>
+<td><code>docs/api/</code></td>
+<td>契约总览与实现兼容性</td>
+</tr>
+<tr>
+<td><code>docs/getting-started/</code></td>
+<td>安装、配置</td>
+</tr>
+<tr>
+<td><code>docs/guides/</code></td>
+<td>21 篇运维指南（多租户、暂停、vault、池、隔离会话、遥测…）</td>
+</tr>
+<tr>
+<td><code>docs/deployment/</code></td>
+<td>Kubernetes 部署顺序与配置</td>
+</tr>
+<tr>
+<td><code>docs/examples/</code></td>
+<td>30+ 集成示例（Claude Code、Codex、Playwright、ADK、LangGraph…）</td>
+</tr>
+<tr>
+<td><code>oseps/</code></td>
+<td>24 份设计提案（见附录 B）</td>
+</tr>
+<tr>
+<td><code>specs/</code></td>
+<td>四份 OpenAPI 契约 + 契约测试</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="19-wrap-up.html"><small>上一篇</small>完结篇：跟着一次请求走完全书</a><a href="appendix-sources.html"><small>下一篇</small>附录 B：来源、版本与事实边界</a></nav></main><script src="../assets/wiki.js"></script></body></html>

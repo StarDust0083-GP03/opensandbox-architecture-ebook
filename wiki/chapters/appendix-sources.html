@@ -1,0 +1,229 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>附录 B：来源、版本与事实边界 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="appendix-sources"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#上游快照">上游快照</a></li><li><a href="#阅读方法">阅读方法</a></li><li><a href="#没有做过的事">没有做过的事</a></li><li><a href="#数字的出处">数字的出处</a></li><li><a href="#观察到的文档与命名不一致">观察到的文档与命名不一致</a></li><li><a href="#osep-索引-24-份">OSEP 索引（24 份）</a></li><li><a href="#本书与上游的关系">本书与上游的关系</a></li></ol></details><article class="content"><h1 id="附录-b-来源-版本与事实边界">附录 B：来源、版本与事实边界</h1><h2 id="上游快照">上游快照</h2><table>
+<thead>
+<tr>
+<th>项</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>仓库</td>
+<td><code>https://github.com/opensandbox-group/OpenSandbox</code></td>
+</tr>
+<tr>
+<td>提交</td>
+<td><code>c2f55b20e945d89efe3d35220942a997a3551751</code></td>
+</tr>
+<tr>
+<td>提交时间</td>
+<td>2026-10-30 23:09:43 +0800</td>
+</tr>
+<tr>
+<td>提交标题</td>
+<td><code>Merge pull request #2495 from opensandbox-group/osep-0025-w1-contracts-and-resolver</code></td>
+</tr>
+<tr>
+<td>分支</td>
+<td><code>main</code></td>
+</tr>
+<tr>
+<td>核对日期</td>
+<td>2026-10-31</td>
+</tr>
+<tr>
+<td>克隆方式</td>
+<td><code>git clone --depth 1</code>（浅克隆，不含历史）</td>
+</tr>
+<tr>
+<td>许可</td>
+<td>代码 Apache-2.0；文档 CC BY 4.0（CHARTER 第 7.b.iv 条）</td>
+</tr>
+</tbody></table>
+<p>书稿引用的所有路径、行数、字段名、常量都对应这个提交。上游继续演进后，个别细节会漂移；遇到不一致时以该提交为准，或用你手上的版本重新核对。</p>
+<h2 id="阅读方法">阅读方法</h2><p><strong>完整读过</strong>（作为章节事实来源）：</p>
+<ul>
+<li><code>README.md</code>、<code>CHARTER.md</code>、<code>ROADMAP.md</code></li>
+<li><code>docs/architecture/index.md</code>、<code>control-plane/server.md</code>、<code>control-plane/operator.md</code>、<code>data-plane/execd.md</code>、<code>data-plane/node-agent.md</code></li>
+<li><code>docs/architecture/network/ingress.md</code>、<code>egress.md</code>、<code>single-host-network.md</code></li>
+<li><code>docs/architecture/fast-sandbox/</code> 下 <code>index</code>、<code>templates</code>、<code>scheduling</code>、<code>networking</code>、<code>checkpoints</code>、<code>ha</code>、<code>storage</code>、<code>firecracker</code>、<code>performance</code></li>
+<li><code>docs/api/index.md</code>、<code>docs/api/implementation-compatibility.md</code></li>
+<li><code>docs/getting-started/installation.md</code>、<code>configuration.md</code></li>
+<li><code>docs/guides/</code> 中的 <code>pause-resume</code>、<code>credential-vault</code>、<code>multi-tenancy</code>、<code>lifecycle-hooks</code>、<code>isolated-sessions</code>（含关键小节）、<code>client-pool</code>（前半）、<code>secure-container</code>（概览与兼容矩阵）、<code>telemetry</code>（章节结构）</li>
+<li><code>docs/deployment/index.md</code>（前 180 行）</li>
+<li><code>specs/</code> 四份契约的头部与 <code>info</code> 段、<code>specs/README.md</code></li>
+<li><code>oseps/</code> 目录清单（24 份）与 <code>oseps/README.md</code> 未逐篇通读</li>
+<li><code>CONTRIBUTING.md</code> 的 License 节、<code>LICENSE</code> 头部</li>
+</ul>
+<p><strong>按需查阅</strong>：<code>docs/guides/</code> 其余指南只看标题结构与关键段落（<code>renew-on-access</code>、<code>auto-pause-wake</code>、<code>network-isolation</code>、<code>egress-upstream-proxy</code>、<code>secure-access</code>、<code>windows-sandbox</code> 等），用于交叉验证具体结论。</p>
+<p><strong>源码</strong>：逐文件读过或片段引用 <code>server/</code>（<code>main.py</code>、<code>startup_guard.py</code>、<code>api/lifecycle.py</code>、<code>api/schema.py</code> 部分、<code>services/sandbox_service.py</code>、<code>factory.py</code>、<code>composite_service.py</code>、<code>runtime_resolver.py</code>、<code>services/docker/networking.py</code> 片段）、<code>components/execd</code>（<code>web/controller/command.go</code>、<code>web/model/codeinterpreting.go</code>）、<code>components/egress</code>（<code>pkg/policy/policy.go</code>、<code>always_rules.go</code>）、<code>components/ingress/pkg/proxy/header.go</code>、<code>kubernetes/apis/sandbox/*/batchsandbox_types.go</code>、<code>sdks/sandbox/python/.../sandbox.py</code> 片段、<code>sdks/sandbox/go/go.mod</code>、若干 <code>Chart.yaml</code>/<code>values.yaml</code>。其余代码只做了目录级与 grep 级观察。</p>
+<h2 id="没有做过的事">没有做过的事</h2><p>这一节比上面那节重要。</p>
+<ul>
+<li><strong>没有部署或运行 OpenSandbox。</strong> 没有起服务器、没有建沙箱、没有跑它的 e2e 测试。</li>
+<li><strong>没有做性能测量。</strong> 书里出现的每个毫秒数都是上游文档的数字，附了出处与适用条件。</li>
+<li><strong>没有做安全审计。</strong> 对 nftables 规则、TLS 拦截、路径守卫的描述是「文档说它这样实现」，不是「我验证过它没有漏洞」。</li>
+<li><strong>没有做许可的合规审查。</strong> 只记录了代码 Apache-2.0、文档 CC BY 4.0 这一事实。把上游材料用于商业用途前应自行确认。</li>
+<li><strong>没有通读 24 份 OSEP。</strong> 引用 OSEP 编号处，依据的是文档与 ROADMAP 中对它的转述。</li>
+<li><strong>没有验证 README 里的所有集成示例</strong>（30+），也没有判断它们的可运行性。</li>
+</ul>
+<h2 id="数字的出处">数字的出处</h2><table>
+<thead>
+<tr>
+<th>数字</th>
+<th>出处</th>
+<th>适用条件</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建 p50 64.0 ms / p90 93.8 ms / p99 108.3 ms</td>
+<td><code>docs/architecture/fast-sandbox/performance.md</code></td>
+<td>ACK 两节点，2026-10-08，模板已缓存，串行 100 次，SDK 就绪口径</td>
+</tr>
+<tr>
+<td>并发 10：p50 102.7 ms / p99 125.4 ms</td>
+<td>同上</td>
+<td>100/100 成功</td>
+</tr>
+<tr>
+<td>并发 20：p50 136.7 ms，51/100 成功</td>
+<td>同上</td>
+<td><strong>只含成功尝试</strong>；48 次 429 + 1 次就绪超时被排除</td>
+</tr>
+<tr>
+<td>运行时创建 p50 33.5–50.0 ms</td>
+<td>同上</td>
+<td>runtime 日志，止于运行时创建，不含 SDK 就绪</td>
+</tr>
+<tr>
+<td>SDK 同节点恢复中位 62.66 s</td>
+<td>同上</td>
+<td>3 个样本；运行时恢复 35.49 ms；差距未定位</td>
+</tr>
+<tr>
+<td>100 沙箱 0.92 s（BatchSandbox 池化）</td>
+<td><code>docs/architecture/control-plane/operator.md</code></td>
+<td>与 agent-sandbox 76.4/23.2/33.9 s 对比；不同实现路径</td>
+</tr>
+<tr>
+<td>隔离会话创建约 100 ms</td>
+<td><code>docs/guides/isolation-sessions.md</code></td>
+<td>bwrap 启动 + 短暂等待</td>
+</tr>
+<tr>
+<td>egress 9 秒停止预算（Docker）</td>
+<td><code>docs/architecture/network/egress.md</code></td>
+<td>删除时</td>
+</tr>
+<tr>
+<td>ingress WebSocket 握手预算 45 s、消息 64 MiB</td>
+<td><code>docs/architecture/network/ingress.md</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>单个事件行最大 16 MiB</td>
+<td><code>docs/architecture/data-plane/execd.md</code></td>
+<td>会话输出切分</td>
+</tr>
+<tr>
+<td>后台命令输出保留 24 h</td>
+<td>同上</td>
+<td>已完成的后台命令</td>
+</tr>
+</tbody></table>
+<p>所有性能数字都来自上游自测，本书没有复现。它们的可比性受环境、版本、口径影响，不能直接当作你的部署预期。</p>
+<h2 id="观察到的文档与命名不一致">观察到的文档与命名不一致</h2><p>下面几处是我在阅读中确认存在的漂移，写下来供读者避免困惑（都是事实观察，不是缺陷主张）：</p>
+<ol>
+<li><strong>Go module 路径与 npm scope 仍用 <code>alibaba</code>。</strong> <code>sdks/sandbox/go/go.mod</code> 是 <code>module github.com/alibaba/OpenSandbox/sdks/sandbox/go</code>；JS 包名是 <code>@alibaba-group/opensandbox</code>；JVM 坐标是 <code>com.alibaba.opensandbox</code>。仓库已迁到 <code>opensandbox-group</code> 组织下，但发布坐标没有跟着改。README 同时列出了新旧两种形态。</li>
+<li><strong><code>/pty</code> 路由不在 <code>execd-api.yaml</code> 里。</strong> 实现已存在，契约未覆盖；文档明确说不能从 OpenAPI 兼容推出「支持这类扩展」。</li>
+<li><strong>隔离会话的 <code>diff</code>/<code>commit</code> 在契约里但未实现</strong>，返回 <code>503</code>，<code>/v1/isolated/capabilities</code> 如实报告。</li>
+<li><strong><code>server/v*</code> 冻结标签不再标识较新的服务器发布</strong>，统一发布标签是 <code>release-X.Y.Z</code>；文档专门提醒不要用旧标签判断版本。</li>
+<li><strong>文档目录与指南术语小差异</strong>：<code>docs/guides/</code> 有 <code>auto-pause-wake.md</code> 与 <code>auto-pause-wake-on-access.md</code> 两个相邻主题（前者是操作指南，后者是架构说明），阅读时容易混。本书第 13 篇把两者合并在「访问驱动的两个方向」一节。</li>
+<li><strong><code>specs/diagnostic-api.yml</code> 用 <code>.yml</code> 后缀，另外三份用 <code>.yaml</code>。</strong> 这个不一致会绊到批量脚本。</li>
+</ol>
+<h2 id="osep-索引-24-份">OSEP 索引（24 份）</h2><p><code>oseps/</code> 是距离「设计意图」最近的证据。本书引用过的几份：</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>主题</th>
+<th>本书位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0004</td>
+<td>安全容器运行时</td>
+<td>第 15 篇</td>
+</tr>
+<tr>
+<td>0005</td>
+<td>客户端沙箱池</td>
+<td>第 13 篇</td>
+</tr>
+<tr>
+<td>0007</td>
+<td>Fast Sandbox 运行时支持</td>
+<td>第 8 篇</td>
+</tr>
+<tr>
+<td>0008</td>
+<td>暂停/恢复 via rootfs 快照</td>
+<td>第 13 篇</td>
+</tr>
+<tr>
+<td>0009</td>
+<td>访问即续期</td>
+<td>第 10、13 篇</td>
+</tr>
+<tr>
+<td>0011</td>
+<td>安全 endpoint 访问</td>
+<td>第 10 篇</td>
+</tr>
+<tr>
+<td>0012</td>
+<td>Credential Vault</td>
+<td>第 12 篇</td>
+</tr>
+<tr>
+<td>0013</td>
+<td>隔离执行 API</td>
+<td>第 9 篇</td>
+</tr>
+<tr>
+<td>0014</td>
+<td>多租户</td>
+<td>第 14 篇</td>
+</tr>
+<tr>
+<td>0018</td>
+<td>execd 作为 init</td>
+<td>第 9 篇</td>
+</tr>
+<tr>
+<td>0019</td>
+<td>节点级沙箱采集</td>
+<td>第 16 篇</td>
+</tr>
+<tr>
+<td>0022</td>
+<td>多沙箱 egress 控制面</td>
+<td>第 8、11、12 篇</td>
+</tr>
+<tr>
+<td>0023</td>
+<td>凭据绑定的 TLS 拦截</td>
+<td>第 11 篇</td>
+</tr>
+<tr>
+<td>0024</td>
+<td>Fast Sandbox 空闲暂停与唤醒</td>
+<td>第 13 篇</td>
+</tr>
+</tbody></table>
+<p>其余编号覆盖：FQDN 出向控制（0001）、agent-sandbox 支持（0002）、卷与卷绑定（0003）、开发者控制台（0006）、OpenTelemetry（0010）、Pod 快照（0015）、统一 umbrella 发布治理（0016）、SDK 传输韧性（0017）、生命周期钩子（0020）、可扩展的客户端池预热（0021）。提交标题里出现的 0025 在本快照的 <code>oseps/</code> 目录里还没有对应文件。</p>
+<h2 id="本书与上游的关系">本书与上游的关系</h2><ul>
+<li>本书是<strong>独立撰写</strong>的中文解读，不是上游文档的翻译，也不是其官方出版物。</li>
+<li>引用上游文档与代码时保持简短并标注路径；结构性结论按「源码观察 / 文档陈述 / 教学推演 / 教学场景」区分（见前言）。</li>
+<li>书中的教学实现 <code>examples/mini_osb.py</code> 是原创的，用标准库重写本书讨论的结构，不与上游代码共享来源。</li>
+<li>书稿许可建议沿用上游文档的 CC BY 4.0 精神（署名 + 相同方式说明来源），但这是作者的选择，不是上游对本项目的授权。上游代码与文档的许可各自独立。</li>
+<li>「OpenSandbox」是上游项目的名称，本书不主张任何商标权利，也不代表上游立场。</li>
+</ul>
+</article><nav class="pager" aria-label="篇章导航"><a href="appendix-map.html"><small>上一篇</small>附录 A：源码阅读地图</a><a href="appendix-code.html"><small>下一篇</small>附录 C：配套教学实现</a></nav></main><script src="../assets/wiki.js"></script></body></html>

@@ -1,0 +1,125 @@
+# 契约层：四份 OpenAPI 与它们没写的东西
+
+读一个平台，先读它的契约。契约决定了所有调用方能看到的世界，也决定了实现者能偷偷改多少东西。
+
+OpenSandbox 把 `specs/` 当作公开行为的唯一来源，并把这句话写进了 `AGENTS.md`：生成物要从源头重新生成，而不是只打补丁。这一篇按使用者的顺序读这四份文件：先看生命周期契约怎么描述一个沙箱，再看数据面契约怎么描述一次执行，最后看它们各自没写什么。
+
+## 生命周期契约的骨架
+
+`specs/sandbox-lifecycle.yml`（`info.version: 0.1.0`）的 base path 是 `/v1`，资源分成四组：
+
+| 组 | 端点 | 语义 |
+|---|---|---|
+| 沙箱 | `POST/GET /sandboxes`、`GET/DELETE /sandboxes/{id}` | 创建、列举、查询、删除 |
+| 状态 | `POST .../pause`、`.../resume`、`.../renew-expiration`、`PATCH .../metadata` | 中间态操作与非生命周期字段 |
+| 访问 | `GET .../endpoints/{port}`、`/networkpolicy`、`/credential-vault` | 让调用方能进得去、管得住 |
+| 派生资源 | `/snapshots`、`/templates` | 从沙箱派生的可复用制品 |
+
+创建请求的字段在 `api/schema.py` 里能看全，一共十五个左右，可以按用途分四类：
+
+```text
+来源       image / snapshotId / templateId        （三者互斥）
+形状       platform / resourceLimits / resourceRequests / volumes
+行为       entrypoint / env / lifecycle / networkPolicy / credentialProxy
+元数据     metadata / extensions / secureAccess / timeout
+```
+
+这份字段表里有两处很能说明设计取向。
+
+第一处是 **`extensions` 是 `map<string,string>`**，不是结构化字段。它给了平台一个不破坏契约的扩展槽：例如访问续期的旧式写法 `extensions["access.renew.extend.seconds"]` 在 1.x 期间继续支持，新代码应该用 `lifecycle.renewalPolicy`（OSEP-0009）。把「过渡期」写进契约而不是写进代码注释，是这份契约比较成熟的一面。
+
+第二处是 **`resourceLimits` 用 `RootModel[Dict[str,str]]`**，值是字符串而不是数字：`{"cpu": "500m", "memory": "512Mi", "gpu": "1"}`。这样 Kubernetes 的数量表达式可以原样传，Docker 后端再自己换算。代价是校验变弱——`"500M"` 和 `"500m"` 在语义上不同，契约层不管。
+
+## 状态与错误：把「不确定」编码进去
+
+沙箱对象里最关键的不是 `image`，而是 `status`：
+
+```text
+status.state         Pending / Running / Pausing / Paused / Resuming / Stopping / Terminated / Failed
+status.reason        机器可读的原因码
+status.message       人能读的说明
+status.lastTransitionAt  最近一次迁移时间
+```
+
+四个字段合起来解决了一个常见问题：客户端拿到 `Failed` 时，需要知道是「镜像拉不到」还是「节点资源不足」，而不是只有一句「创建失败」。
+
+错误响应的形状是 `ErrorResponse{code, message}`，HTTP 状态码承担粗分类：`400` 请求非法、`401` 认证失败、`404` 不存在、`409` 状态冲突（比如对已暂停的沙箱再暂停）、`429` 容量耗尽、`503` 暂不可用。文档里还有一条容易被忽略的补充：不同后端对「不支持」用的状态码并不统一（模板管理在 Docker 上返回 `501`，快照服务的不支持运行时会返回 `409` 预检，隔离会话的 diff/commit 返回 `503`）。兼容性文档明确说这不是缺陷而是现状，并提醒「不要假设有一个统一的不支持状态码」。
+
+## 异步创建：202 与轮询
+
+创建是异步的：API 立刻返回，沙箱先处于 `Pending`，客户端轮询 `GET /sandboxes/{id}` 或使用 SDK 的就绪帮助函数。这一点在契约里就定了，因为 Pod 调度和 microVM 启动都可能耗时数秒。
+
+为什么不用长连接或回调？文档给的理由是「不能让 HTTP 请求一直挂在那儿」。教学推演上还有两条：长连接在网关处容易被超时掐断；回调需要一个所有调用方都能被访问的回调端点，而调用方经常在自己都进不去的网络里。
+
+异步的代价是状态机必须严谨。第 13 篇会看到它严谨到什么程度：连 `Paused` 之后 Pod 还没删完这段窗口，都要在文档里写清楚「可以提交 resume，控制器会等旧 Pod 消失」。
+
+## endpoint：一个被低估的端点
+
+`GET /sandboxes/{id}/endpoints/{port}` 返回的是一个对象，不是字符串：
+
+```json
+{
+  "endpoint": "http://10.0.0.12:44772/proxy/8080",
+  "headers": { "X-EXECD-ACCESS-TOKEN": "..." }
+}
+```
+
+这个形状是刻意的。如果只返回地址，调用方就得自己知道要带什么头；而「要带什么头」恰恰随部署变化（secure access 的签名、egress sidecar 的认证、execd 的访问令牌）。把地址和头打包返回，客户端就能写一行代码适配所有拓扑。
+
+还有一个细节藏在响应头里：解析 endpoint 时服务器会回 `OPEN-SANDBOX-ORIGIN`，模板来源的沙箱明确标成 `template`。SDK 用这个信号决定后续的策略操作走生命周期 API 还是走 sidecar——这是第 8 篇的关键分支。
+
+## 数据面契约：SSE 不是传输细节
+
+`specs/execd-api.yaml` 描述的是沙箱内 API，base URL 默认 `http://localhost:44772`。它的核心不是路由表，而是**流的事件模型**：
+
+```text
+init / status / stdout / stderr / result / execution_complete / execution_count / error / ping
+```
+
+`ServerStreamEvent` 在 Go 里的字段很少：`type`、`text`、`exit_code`、`execution_time`、`timestamp`、`results`、`error`。少是有意的：事件越简单，跨语言客户端越容易正确实现。
+
+契约里写得很清楚的三条语义，值得单独抄出来：
+
+1. **行尾保留原样**。`stdout` 事件里的文本保留 `\n`、`\r` 或 `\r\n`，客户端按序拼接就能还原输出，最后一个事件可能是不完整的一段。
+2. **成功也有退出码**。前台 `POST /command` 以 `execution_complete` 携带 `exit_code: 0` 结束；后台启动确认与代码执行事件里没有这个字段，缺失不代表成功。
+3. **流提前结束不构成成功**。在终止事件之前断流，只能当作不确定。
+
+第 9 篇会讲为什么这三条要写进契约，而不是留给 SDK 猜。
+
+## 契约没写的东西
+
+这是本章最重要的部分。上游自己在 `docs/api/implementation-compatibility.md` 里列了一份清单，说明「契约覆盖」和「实现能力」不是一回事：
+
+- **PTY 路由不在 OpenAPI 里。** `execd` 的 `/pty` HTTP 与 WebSocket 路由已经实现，但还没进 `execd-api.yaml`。文档的结论很直接：不能从「OpenAPI 兼容」推出「支持这类扩展」。
+- **隔离会话的 diff/commit 在契约里但没实现。** 两个端点都在 `execd-api.yaml` 里，当前实现返回 `503`，并且 `/v1/isolated/capabilities` 会如实报告 `diff_supported: false`。这是「契约先行」的必然产物，处理方式是显式失败而不是假装成功。
+- **能力随运行时不同。** 模板只在 Fast Sandbox 上支持；生命周期钩子只在 Kubernetes 容器后端支持；Fast Sandbox 拒绝卷挂载。这些差异写进了兼容性文档的表格，而不是靠版本号掩盖。
+- **没有统一的能力协商端点。** 文档明确说当前没有通用的 capability negotiation，也没有一套 v1 一致性档位。调用方要么按操作逐个探测，要么按文档声明。
+
+我在这里读出两个判断。第一，这个项目宁愿把不一致写进文档，也不愿造一个假的统一层——短期难看，长期可信。第二，`/v1/isolated/capabilities` 这种「按特性探测」的局部机制比全局协商更现实：不同子系统的成熟速度本来就不同。
+
+## SDK 是契约的消费者，不是契约
+
+五种语言（Python、JavaScript/TypeScript、Java/Kotlin、C#/.NET、Go）的沙箱 SDK 都建在 `specs/` 上：生成代码处理普通请求响应，手写层处理流式、传输生命周期、错误映射和高级模型。这个分工在架构文档里写得很直白。
+
+所以 SDK 的行为不构成契约。兼容性文档专门用一节列出「当前 Python SDK 的 endpoint 期望」：`create()` 会先解析 `44772`（execd）再解析 `18080`（egress），`create_from_template()` 只解析 `44772`，`connect()` 两者都要。作者提醒这是「当前树的描述，而不是可移植的协议要求」。
+
+对自建后端的读者，这一节的价值是：**你可以只实现一个窄的操作集，但必须知道高层的 SDK 流程会先做哪些查找**。只实现生命周期 API 加上自己的 workload 客户端，也是一条合法的集成路径——只要你不用官方 SDK 的 `Sandbox` 类。
+
+## 本章要点
+
+- 四份契约分给三类进程；生命周期契约的 base path 是 `/v1`，契约版本 `0.1.0` 与包版本是两件事。
+- `extensions` 是刻意留的字符串扩展槽，用来承载过渡期语义。
+- 异步创建 + 四字段状态 + 结构化错误，是「让失败可解释」的最小组合。
+- endpoint 返回地址**和请求头**，因为访问方式随部署而变。
+- SSE 的行尾保留、成功退出码、断流不等于成功，三条语义写进了契约。
+- 契约覆盖不等于实现能力：PTY 不在契约里，diff/commit 在契约里但没实现，能力按后端不同。
+
+## 本章源码入口
+
+| 路径 | 看什么 |
+|---|---|
+| `specs/sandbox-lifecycle.yml` | 资源组、字段、状态枚举、错误响应 |
+| `specs/execd-api.yaml` | 事件类型与命令/文件路由 |
+| `server/opensandbox_server/api/schema.py` | 契约在服务端的 Pydantic 落地，1817 行 |
+| `docs/api/implementation-compatibility.md` | 契约与实现的差异清单 |
+| `specs/tests/` | 契约自身的测试 |

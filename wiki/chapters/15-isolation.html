@@ -1,0 +1,218 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>隔离与加固：从 runc 到 microVM · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="15-isolation"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#四层-各自挡什么">四层，各自挡什么</a></li><li><a href="#安全运行时-一次配置-全局生效">安全运行时：一次配置，全局生效</a></li><li><a href="#兼容性矩阵-选型时真正要看的东西">兼容性矩阵：选型时真正要看的东西</a></li><li><a href="#跨组件的硬性不兼容">跨组件的硬性不兼容</a></li><li><a href="#加固地板-默认关闭的正确性">加固地板：默认关闭的正确性</a></li><li><a href="#隔离能挡什么-不能挡什么">隔离能挡什么，不能挡什么</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="隔离与加固-从-runc-到-microvm">隔离与加固：从 runc 到 microVM</h1><p>第 1 篇把「隔离必须是运行时的性质」列为第一条需求。这一篇兑现它，并且要说清一件事：<strong>隔离不是一个开关，是一个分层结构，每层能挡的东西不同。</strong></p>
+<h2 id="四层-各自挡什么">四层，各自挡什么</h2><p>execd 文档列的四层结构是全书里最清晰的隔离表述：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>内容</th>
+<th>挡什么</th>
+<th>谁开启</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>沙箱边界</td>
+<td>资源限制、身份、隔离运行时（runc/gVisor/Kata/Firecracker）</td>
+<td>容器逃逸、越权访问宿主</td>
+<td>创建时选定</td>
+</tr>
+<tr>
+<td>加固地板</td>
+<td>原生 launcher：drop capabilities、<code>no_new_privs</code>、syscall 拒绝列表、Landlock 写限制</td>
+<td>沙箱内部的提权与持久化</td>
+<td>运维开启</td>
+</tr>
+<tr>
+<td>隔离会话</td>
+<td>per-execution bubblewrap 命名空间</td>
+<td>同一沙箱内任务之间的相互影响</td>
+<td>每次执行</td>
+</tr>
+<tr>
+<td>eBPF 审计</td>
+<td>记录 exec / connect / 权限变更</td>
+<td>事后取证（不阻断）</td>
+<td>单独 <code>execd-ebpf</code> 构建</td>
+</tr>
+</tbody></table>
+<p>关键设计不是这四层的存在，而是<strong>每层都会报告自己的状态</strong>：active、degraded 或 unsupported。客户端能验证实际生效的是哪几层，而不是相信宣传。</p>
+<p>第 9 篇提过的那条边界要重复一次：execd 的<strong>生命周期钩子是平台配置的可信代码</strong>，在沙箱内运行。文档原话是「它们是便利，不是安全控制」。任何把初始化工作当安全边界的方案都会在这一句上翻车。</p>
+<h2 id="安全运行时-一次配置-全局生效">安全运行时：一次配置，全局生效</h2><p>隔离运行时由服务端配置，<code>[secure_runtime] type</code> 取 <code>&quot;&quot;</code>（runc，默认）、<code>gvisor</code>、<code>kata</code>、<code>firecracker</code>。文档给的开销对照：</p>
+<table>
+<thead>
+<tr>
+<th>运行时</th>
+<th>隔离机制</th>
+<th>启动开销</th>
+<th>内存开销</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>runc（默认）</td>
+<td>进程级 cgroup</td>
+<td>~0 ms</td>
+<td>极小</td>
+</tr>
+<tr>
+<td>gVisor</td>
+<td>用户态内核（syscall 拦截）</td>
+<td>~10–50 ms</td>
+<td>~50 MB</td>
+</tr>
+<tr>
+<td>Kata（QEMU）</td>
+<td>QEMU 虚拟机</td>
+<td>~500 ms</td>
+<td>~20–50 MB</td>
+</tr>
+<tr>
+<td>Kata（Firecracker）</td>
+<td>microVM</td>
+<td>~125 ms</td>
+<td>~5 MB</td>
+</tr>
+<tr>
+<td>Kata（CLH）</td>
+<td>Cloud Hypervisor</td>
+<td>~200 ms</td>
+<td>~10–20 MB</td>
+</tr>
+</tbody></table>
+<p>配置翻译成后端参数，由 <code>runtime_resolver.py</code> 完成：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">DEFAULT_DOCKER_RUNTIMES = {<span class="hljs-string">&quot;gvisor&quot;</span>: <span class="hljs-string">&quot;runsc&quot;</span>, <span class="hljs-string">&quot;kata&quot;</span>: <span class="hljs-string">&quot;kata-runtime&quot;</span>}
+DEFAULT_K8S_RUNTIME_CLASSES = {<span class="hljs-string">&quot;gvisor&quot;</span>: <span class="hljs-string">&quot;gvisor&quot;</span>, <span class="hljs-string">&quot;kata&quot;</span>: <span class="hljs-string">&quot;kata-qemu&quot;</span>, <span class="hljs-string">&quot;firecracker&quot;</span>: <span class="hljs-string">&quot;kata-fc&quot;</span>}</code></pre></div><p>Docker 上是一条 OCI runtime 名字，Kubernetes 上是一个 <code>RuntimeClass</code>。调用方完全看不到这个差异——这正是第 5 篇「运行时中立」的含义。</p>
+<p>启动时会校验声明的运行时可用（<code>validate_secure_runtime_on_startup</code>）。不可用就启动失败，理由还是第 4 篇那条：隔离配错时，单个请求看不出来。</p>
+<h2 id="兼容性矩阵-选型时真正要看的东西">兼容性矩阵：选型时真正要看的东西</h2><p><code>secure-container</code> 文档给了一张很实用的表，它比「启动开销」更能决定选型：</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>runc</th>
+<th>gVisor</th>
+<th>Kata(QEMU)</th>
+<th>Kata(CLH)</th>
+<th>Kata(FC)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>syscall 兼容性</td>
+<td>完整</td>
+<td>部分</td>
+<td>完整</td>
+<td>完整</td>
+<td>受限</td>
+</tr>
+<tr>
+<td>GPU</td>
+<td>是</td>
+<td>是*</td>
+<td>是</td>
+<td>是</td>
+<td>否</td>
+</tr>
+<tr>
+<td>IPv6</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+</tr>
+<tr>
+<td>特权模式</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>否</td>
+</tr>
+<tr>
+<td>Docker 卷</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+</tr>
+<tr>
+<td>systemd</td>
+<td>是</td>
+<td>是*</td>
+<td>是</td>
+<td>是</td>
+<td>否</td>
+</tr>
+</tbody></table>
+<p><code>*</code> 表示需要额外配置。</p>
+<p>这张表解释了为什么没有「最佳运行时」：Firecracker 密度最高、开销最低，但 syscall 受限、没有 GPU、不支持特权模式与 systemd。要跑一个需要 systemd 或 GPU 的镜像，就不能用它。</p>
+<h2 id="跨组件的硬性不兼容">跨组件的硬性不兼容</h2><p>这是本章最重要的部分：几条隔离选择会直接让某些功能失效，而这些约束分散在不同的文档里。</p>
+<p><strong>gVisor × egress。</strong> egress 的两条重定向路径（iptables 与原生 nftables）都需要 gVisor 不支持的 nftables 特性。文档的结论是「两者都不行」：要安全运行时 + 出向策略，用 Kata。</p>
+<p><strong>gVisor × rootfs 快照。</strong> <code>docs/api/implementation-compatibility.md</code> 写明：Kubernetes 的 rootfs 快照提交器<strong>拒绝 gVisor RuntimeClass</strong>。也就是说，选择 gVisor 会同时失去「默认出向策略」和「暂停/恢复」两项能力。</p>
+<p><strong>egress × mesh 注入。</strong> 透明 mesh sidecar（Istio/Envoy）与 egress 会在同一命名空间里争抢出向改写。文档给了三条出路：把沙箱 Pod 排除在注入外；保留注入但不启用 egress 的凭据与策略功能；把出向策略移到沙箱 Pod 之外的平台机制。</p>
+<p><strong>Fast Sandbox × guest netfilter。</strong> 跨 VM netns 的流量从 Pod 视角是二层桥流量，所以权威执行层是 pod-netns 的 forward 链，不是容器 OUTPUT 路径。第 8 篇讲过这条，它解释了一个反直觉的现象：<strong>guest 自己的 iptables 不是执行点</strong>。</p>
+<p><strong>Firecracker × 宿主能力。</strong> 需要 <code>/dev/kvm</code>、<code>/dev/net/tun</code>、cgroup v2、XFS reflink、足够大的 <code>/dev/shm</code>，以及 10 GiB 磁盘 / 2 GiB 内存的余量。缺任何一项，节点不会被标记，也不会收到 microVM 沙箱。</p>
+<p>把这些放在一起看，选型其实是一张能力取舍表，而不是一个安全等级排序：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">要 GPU / systemd / 特权模式        → Kata(QEMU) 或 runc
+要最高密度 + 最低开销               → Firecracker（放弃 GPU 与 systemd）
+要 syscall 兼容 + 低开销           → gVisor（放弃 egress 包级策略与 rootfs 快照）
+要一切功能都能用                    → runc（放弃强隔离）</code></pre></div><h2 id="加固地板-默认关闭的正确性">加固地板：默认关闭的正确性</h2><p>加固地板指的是 execd 的原生 launcher：每次启动用户进程时 drop capabilities、设 <code>no_new_privs</code>、装 syscall 拒绝列表、用 Landlock 限制文件系统写。</p>
+<p>它默认是<strong>关闭</strong>的（由运维开启）。这个默认值我认为是对的，理由是顺序问题：加固地板会改变进程能做的事，而用户镜像的假设可能是「我有完整 syscall」。把它默认打开，会让一大批现有镜像在运行时报奇怪的错误——而这些错误会被误诊为平台 bug。</p>
+<p>正确的默认是「隔离边界先到位（运行时），加固地板按需开启（策略）」，而不是反过来的。这也解释了为什么文档强调「每层报告自己的状态」：当加固地板开启后某个镜像坏了，你要能立刻看出是哪一层变的。</p>
+<h2 id="隔离能挡什么-不能挡什么">隔离能挡什么，不能挡什么</h2><p>把这一章收紧，需要一份诚实的威胁模型。根据前面的材料，可以列出：</p>
+<p><strong>能挡住的</strong>：</p>
+<ul>
+<li>容器逃逸到宿主（取决于运行时强度）；</li>
+<li>沙箱之间互相访问（命名空间 + 私有 CIDR 的同级隔离规则）；</li>
+<li>从内部关闭或绕过网络策略（沙箱没有 <code>NET_ADMIN</code>，规则在 sidecar/共享 egress 里）；</li>
+<li>拿到真实凭据（Vault 把秘密留在沙箱之外）；</li>
+<li>同一沙箱内不同任务互相影响（隔离会话的 per-execution 命名空间）。</li>
+</ul>
+<p><strong>挡不住的</strong>：</p>
+<ul>
+<li><strong>通过被允许的出向目标泄露数据</strong>。策略允许 <code>pypi.org</code>，那么沙箱就能向 <code>pypi.org</code> 发数据。域名白名单是目的地控制，不是数据流控制。</li>
+<li><strong>提示注入导致的沙箱内恶意行为</strong>。隔离限制的是「能碰到什么」，不是「会做什么」。一个被注入的 Agent 可以合法地删掉自己的工作区。</li>
+<li><strong>跨租户共享命名空间时的软隔离绕过</strong>（如果部署选择了共享命名空间）。</li>
+<li><strong>eBPF 审计的缺失</strong>（默认镜像不含它）。</li>
+<li><strong>生命周期钩子里的错误</strong>（它们是可信代码，出错就是沙箱内出错）。</li>
+</ul>
+<p>这份清单比「我们提供四层防护」有用得多。它也是第 18 篇讨论「这套设计放弃了什么」的输入。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>四层防护：沙箱边界、加固地板、隔离会话、eBPF 审计，每层自报 active/degraded/unsupported。</li>
+<li>隔离运行时由服务端配置，翻译成 Docker OCI runtime 或 K8s RuntimeClass，调用方无感；不可用时启动失败。</li>
+<li>兼容性矩阵决定选型：Firecracker 密度最高但 syscall 受限、无 GPU、不支持 systemd/特权。</li>
+<li>硬性不兼容要记住：gVisor 不支持 egress 包级策略与 rootfs 快照；egress 与 mesh 注入冲突；Fast Sandbox 的执行点是 pod-netns forward 链。</li>
+<li>加固地板默认关闭，因为「先边界后策略」的顺序错误会制造误诊。</li>
+<li>隔离挡住宿主逃逸与内部绕过，挡不住「通过被允许的出向目标泄露数据」与提示注入导致的沙箱内破坏。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/services/runtime_resolver.py</code></td>
+<td>安全运行时到后端参数的翻译与校验</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/runtime/</code></td>
+<td>加固启动器、capabilities、Landlock</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/isolation/</code></td>
+<td>bubblewrap 隔离会话</td>
+</tr>
+<tr>
+<td><code>docs/guides/secure-container.md</code></td>
+<td>开销、配置、兼容性矩阵</td>
+</tr>
+<tr>
+<td><code>docs/guides/network-isolation.md</code></td>
+<td>出向策略的设计与安全默认值</td>
+</tr>
+<tr>
+<td><code>oseps/0004-secure-container-runtime.md</code></td>
+<td>设计提案</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="14-identity-tenancy.html"><small>上一篇</small>身份与多租户：三种凭据，两种隔离</a><a href="16-observability.html"><small>下一篇</small>可观测性与诊断：让失败留下证据</a></nav></main><script src="../assets/wiki.js"></script></body></html>

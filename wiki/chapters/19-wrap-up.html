@@ -1,0 +1,173 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>完结篇：跟着一次请求走完全书 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="19-wrap-up"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#请求-post-v1-sandboxes">请求：`POST /v1/sandboxes`</a></li><li><a href="#第-1-毫秒-控制面">第 1 毫秒：控制面</a></li><li><a href="#第一个-100-毫秒-认领容量">第一个 100 毫秒：认领容量</a></li><li><a href="#就绪-从-pending-到-running">就绪：从 `Pending` 到 `Running`</a></li><li><a href="#接入-解析-endpoint">接入：解析 endpoint</a></li><li><a href="#干活-一次命令执行">干活：一次命令执行</a></li><li><a href="#装依赖-出向策略与凭据">装依赖：出向策略与凭据</a></li><li><a href="#访问中途-续期与空闲暂停">访问中途：续期与空闲暂停</a></li><li><a href="#交付-快照还是-diff">交付：快照还是 diff</a></li><li><a href="#出问题时-你会在哪里看到">出问题时，你会在哪里看到</a></li><li><a href="#如果我要改这块代码">如果我要改这块代码</a></li><li><a href="#收尾">收尾</a></li><li><a href="#本章要点">本章要点</a></li></ol></details><article class="content"><h1 id="完结篇-跟着一次请求走完全书">完结篇：跟着一次请求走完全书</h1><p>这一篇把全书串一遍。场景是第 1 篇那个修 bug 的编码 Agent：它要为一次任务申请一个沙箱，跑测试，装一个依赖，改代码，再跑一次，最后交 diff。</p>
+<h2 id="请求-post-v1-sandboxes">请求：<code>POST /v1/sandboxes</code></h2><p>客户端带着 <code>OPEN-SANDBOX-API-KEY</code>，body 里是一份意图：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;image&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;uri&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;python:3.12&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;entrypoint&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;sleep&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;infinity&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;resourceLimits&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;cpu&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;memory&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2Gi&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;timeout&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1800</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;networkPolicy&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;defaultAction&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;deny&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;egress&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;action&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;allow&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;pypi.org&quot;</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;action&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;allow&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;*.github.com&quot;</span><span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;credentialProxy&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;enabled&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;lifecycle&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;idlePolicy&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;idleTimeoutSeconds&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">600</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;onIdle&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;pause&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;wakeOnAccess&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;metadata&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;task&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;fix-issue-418&quot;</span> <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre></div><p>这份 JSON 里每个字段都对应前面某一篇的一个机制：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>由谁处理</th>
+<th>在哪一篇</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>image</code></td>
+<td>运行时后端创建容器/工作负载</td>
+<td>6 / 7</td>
+</tr>
+<tr>
+<td><code>entrypoint</code></td>
+<td>容器入口或分配后的 task</td>
+<td>6 / 7</td>
+</tr>
+<tr>
+<td><code>resourceLimits</code></td>
+<td>后端翻译成容器限额或 Pod 资源</td>
+<td>6 / 7</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>绝对 TTL + 过期定时器/<code>expireTime</code></td>
+<td>13</td>
+</tr>
+<tr>
+<td><code>networkPolicy</code></td>
+<td>egress sidecar 或共享 egress subject</td>
+<td>11</td>
+</tr>
+<tr>
+<td><code>credentialProxy</code></td>
+<td>挂 egress 并启用 MITM 与 vault</td>
+<td>12</td>
+</tr>
+<tr>
+<td><code>idlePolicy</code></td>
+<td>空闲扫描器 + 唤醒路径</td>
+<td>13</td>
+</tr>
+<tr>
+<td><code>metadata</code></td>
+<td>标签/注解，可被列表过滤</td>
+<td>4 / 6</td>
+</tr>
+</tbody></table>
+<h2 id="第-1-毫秒-控制面">第 1 毫秒：控制面</h2><p><code>RequestIdMiddleware</code> 生成或透传请求 ID。<code>AuthMiddleware</code> 校验 key：单租户比对 <code>server.api_key</code>，多租户交给 <code>TenantProvider</code> 并把租户命名空间写进 <code>ContextVar</code>（第 14 篇）。</p>
+<p>路由进入 <code>api.lifecycle.create_sandbox</code>，四步校验：<code>extensions</code> 合法性、renewal 与 extensions 的冲突、<code>networkPolicy</code> 归一化、<code>snapshotId</code> 解析（这里没有 snapshot，跳过）。然后委派给 <code>sandbox_service</code>（第 4 篇）。</p>
+<p>因为 <code>runtime.type = &quot;kubernetes&quot;</code>，实际对象是 <code>CompositeSandboxService</code>；因为没有 <code>templateId</code>，请求走到 <code>KubernetesSandboxService</code>（第 5 篇）。</p>
+<h2 id="第一个-100-毫秒-认领容量">第一个 100 毫秒：认领容量</h2><p>服务器创建 <code>BatchSandbox</code>，带 <code>expireTime</code>、Pod 模板合并后的资源与平台约束、egress sidecar 的追加、以及网络策略的注解。</p>
+<p>如果集群里有 <code>Pool</code>，控制器会把一个<strong>已经 Running+Ready</strong> 的预热 Pod 标注给这个 <code>BatchSandbox</code>，写 <code>alloc-status</code> 注解；<code>entrypoint</code> 作为分配后的 task 下发，而不是改写 Pod。如果池空了，控制器写 <code>PoolAllocationPending</code>（reason <code>PoolCapacityExhausted</code>），服务器在有界窗口内等待，超时返回可重试的 <code>429</code>（第 7 篇）。</p>
+<p>这条路径之所以是毫秒级，是因为调度、拉镜像、启动都发生在<strong>请求之前</strong>。这就是第 1 篇那条「快在已经存在的容量上」的兑现。</p>
+<h2 id="就绪-从-pending-到-running">就绪：从 <code>Pending</code> 到 <code>Running</code></h2><p>服务器等工作负载进入 <code>Running</code>/<code>Allocated</code>（默认 60 秒上限），然后返回创建响应。客户端拿到的是一个 <code>Pending</code> 或 <code>Running</code> 的沙箱对象，带 <code>state</code>/<code>reason</code>/<code>message</code>(第 4 篇)。它至此不再需要轮询创建接口，而是从这个沙箱对象读所有后续状态。</p>
+<p>同时发生的还有两件事：</p>
+<ul>
+<li>egress sidecar 已经把 DNS 与 nftables 规则装好，默认拒绝，只放行 pypi 与 github（第 11 篇）；</li>
+<li>execd 在容器里启动，等待 per-allocation 绑定；绑定未完成前，除 <code>/ping</code>/<code>/ready</code> 外全部返回 <code>503</code>（第 9 篇）。</li>
+</ul>
+<h2 id="接入-解析-endpoint">接入：解析 endpoint</h2><p>客户端要跑命令，于是 <code>GET /sandboxes/{id}/endpoints/44772</code>。</p>
+<p>服务器返回一个地址 + 需要的头。在 Kubernetes + ingress 部署下，通常是网关地址加 <code>OpenSandbox-Ingress-To: &lt;id&gt;-44772</code>；开了 <code>secureAccess</code> 时还带 endpoint 凭据；Fast Sandbox 的返回则是一个签名的 <code>f1.</code> scope（第 8、10 篇）。</p>
+<p><strong>这一步的返回值是凭据，不是普通字符串。</strong> 客户端要原样保留，不能丢头、不能截断路径。</p>
+<h2 id="干活-一次命令执行">干活：一次命令执行</h2><p>客户端 <code>POST /command</code>，body 指定 argv 或 shell 语法。execd 执行并回 SSE：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">data: {&quot;type&quot;:&quot;init&quot;}
+data: {&quot;type&quot;:&quot;stdout&quot;,&quot;text&quot;:&quot;running 42 tests...\n&quot;}
+data: {&quot;type&quot;:&quot;stderr&quot;,&quot;text&quot;:&quot;FAILED test_retry\n&quot;}
+data: {&quot;type&quot;:&quot;execution_complete&quot;,&quot;exit_code&quot;:1}</code></pre></div><p>客户端必须按第 9 篇那三条语义解析：拼接事件还原输出（行尾原样）、<code>execution_complete</code> 的 <code>exit_code</code> 才算结论、流在终止事件前结束就当作不确定。</p>
+<p>对应地，如果客户端是老版本 SDK 且 classpath 里有不兼容的 kotlinx-serialization，它可能解不出这个字段而挂住——这就是 <code>EXECD_SSE_LEGACY_COMPAT</code> 存在的原因。</p>
+<h2 id="装依赖-出向策略与凭据">装依赖：出向策略与凭据</h2><p>Agent 要 <code>pip install</code>。请求发往 <code>pypi.org</code>：</p>
+<ol>
+<li>DNS 被重定向到 sidecar 的 DNS 代理，域名命中 allow 规则，正常解析并记录地址（第 11 篇）；</li>
+<li>nftables 放行该地址，租约有时限；</li>
+<li>如果要访问的是需要认证的内部制品库，请求被 mitmproxy 拦截，绑定匹配后注入认证头；沙箱里的 <code>PIP_INDEX_URL</code> 里只有占位符或假值（第 12 篇）。</li>
+</ol>
+<p>如果 Agent 尝试访问 <code>169.254.169.254</code> 或者 <code>metadata.internal</code>：DNS 返回 <code>NXDOMAIN</code>，或者包被 nftables 丢弃。平台覆盖规则永远优先于租户规则——即使请求里写了 allow（第 11 篇）。</p>
+<h2 id="访问中途-续期与空闲暂停">访问中途：续期与空闲暂停</h2><p>这个任务跑了 40 分钟。期间客户端每隔一段时间唤醒沙箱访问一次：</p>
+<ul>
+<li>每次经网关的请求都会发布一次 <strong>renew-intent</strong>，沙箱的绝对过期时间被延长（第 13 篇）；</li>
+<li>如果客户端停了 10 分钟（超过 <code>idleTimeoutSeconds: 600</code>），空闲扫描器把它暂停：Kubernetes 后端会提交 rootfs 镜像、释放 Pod；</li>
+<li>下一次访问时，<code>wakeOnAccess: true</code> 让它自动唤醒，但<strong>地址变了</strong>，客户端必须重新解析 endpoint（第 13、10 篇）。</li>
+</ul>
+<p>如果部署的是 Fast Sandbox，唤醒可能是检查点恢复，并且在<strong>另一台宿主机</strong>上——重新解析不是可选动作。</p>
+<h2 id="交付-快照还是-diff">交付：快照还是 diff</h2><p>任务结束有两种收尾：</p>
+<p><strong>交 diff</strong>：直接用文件 API 从工作区读改动，然后删除沙箱。删除是异步的：<code>DELETE</code> 返回 <code>204</code>，之后 <code>GET</code> 会看到 <code>Stopping</code>，清理完成变 <code>404</code>。</p>
+<p><strong>保留现场</strong>：<code>POST /sandboxes/{id}/snapshots</code> 创建快照。只有 <code>Running</code> 源可以创建；记录从 <code>Pending → Creating → Publishing → Succeeded</code>；只有 <code>Succeeded</code> 之后才是一个可复用的起点，从它创建出的是<strong>新沙箱 ID</strong>（第 13 篇）。</p>
+<p>注意这里有一个不对称：快照成功之后，沙箱本身的后续写入<strong>不会</strong>被自动快照；进程退出、OOM、驱逐都不会自动保存。想要可复现环境，就得显式做快照——这条边界在第 13 篇被反复强调，因为它是「暂停能不能当备份用」的唯一答案。</p>
+<h2 id="出问题时-你会在哪里看到">出问题时，你会在哪里看到</h2><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>第一现场</th>
+<th>哪一篇</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建 429</td>
+<td><code>PoolAllocationPending</code> 条件、<code>PoolCapacityExhausted</code></td>
+<td>7</td>
+</tr>
+<tr>
+<td>卡在 <code>Pending</code></td>
+<td><code>status.reason</code>、Pod 事件</td>
+<td>4 / 7</td>
+</tr>
+<tr>
+<td>命令没输出</td>
+<td>缺 <code>execution_complete</code>，或流被提前切断</td>
+<td>9</td>
+</tr>
+<tr>
+<td>装依赖失败</td>
+<td>egress：域名被拒（DNS）还是包被丢（nft）</td>
+<td>11</td>
+</tr>
+<tr>
+<td>认证 401/403</td>
+<td>vault 未注入、绑定未匹配、路径守卫拒绝</td>
+<td>12</td>
+</tr>
+<tr>
+<td>恢复后连不上</td>
+<td>endpoint 变了，没重新解析</td>
+<td>10 / 13</td>
+</tr>
+<tr>
+<td>恢复后凭据失效</td>
+<td>Kubernetes 后端 vault 为空，需重新注入</td>
+<td>12 / 13</td>
+</tr>
+<tr>
+<td>日志消失</td>
+<td>沙箱已删，需要 node agent 才能留证据</td>
+<td>16</td>
+</tr>
+</tbody></table>
+<p>这张表是全书的索引：每一行都能追到一个具体机制，而不是一句「看日志」。</p>
+<h2 id="如果我要改这块代码">如果我要改这块代码</h2><p>按改动类型给三条路径：</p>
+<p><strong>加一个后端。</strong> 实现 <code>SandboxService</code> 的 13 个方法，给 ID 一个前缀，在 <code>factory.py</code> 或 <code>Composite</code> 里注册，在兼容性文档里写清不支持的能力（第 5 篇）。不要动 API 与 schema。</p>
+<p><strong>改出向策略。</strong> 从 <code>components/egress/pkg/policy/</code> 的规则模型开始，注意优先级（平台 deny → 平台 allow → 用户）、端口地板的补集语义、以及 fast-sandbox profile 的差异（第 11 篇）。任何新增的「放行」路径都要先想清楚它是否绕过了 deny-first。</p>
+<p><strong>加一个执行能力。</strong> 先看 execd 的分层：命令/文件/PTY 是不同子系统，隔离会话是另一层命名空间（第 9 篇）。新增能力要决定它属于哪一层、是否需要在契约里、以及在池化复用时如何被 per-allocation 绑定重置。</p>
+<h2 id="收尾">收尾</h2><p>回到开头那个问题：<code>POST /v1/sandboxes</code> 之后发生了什么。</p>
+<p>答案是六件事同时发生：控制面校验并委派、运行时认领已有容量、数据面准备好执行接口、网络装上默认拒绝的策略、凭据被留在沙箱之外、生命周期开始倒计时。它们分别由四个进程、三个后端、四份契约保证，并且每一处不确定都被写成了可检查的字段。</p>
+<p>这套系统的价值不在于它有多少功能，而在于它把「承诺」和「不承诺」分得很清。第 18 篇列的那些取舍，本质上都是同一件事的不同侧面：<strong>在能保证的地方给出强保证，在不能保证的地方留下可验证的痕迹。</strong></p>
+<p>读到这里，如果你要做一个类似的执行层，我希望你带走的是这句话，而不是任何具体实现：</p>
+<blockquote>
+<p>沙箱平台的难点从来不是把容器跑起来，而是让「隔离」「快」「可解释」这三件事在同一个请求里同时成立，并且诚实地告诉使用者哪一件打了折。</p>
+</blockquote>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>一次请求会依次穿过：认证与租户 → 校验与委派 → 容量认领 → 就绪 → endpoint 解析 → 命令/文件/代码执行 → 出向策略与凭据 → 续期/空闲暂停 → 快照或删除。</li>
+<li>每个阶段都有一个「第一现场」：状态字段、条件、事件、指标或日志。</li>
+<li>三条改动路径：加后端（实现接口 + 前缀 + 文档）、改出向（优先级与 deny-first）、加执行能力（分层与绑定重置）。</li>
+</ul>
+</article><nav class="pager" aria-label="篇章导航"><a href="18-tradeoffs.html"><small>上一篇</small>权衡：这套设计放弃了什么</a><a href="appendix-map.html"><small>下一篇</small>附录 A：源码阅读地图</a></nav></main><script src="../assets/wiki.js"></script></body></html>

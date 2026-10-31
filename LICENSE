@@ -1,0 +1,33 @@
+# License
+
+This repository contains two kinds of material.
+
+## Book text and reading site
+
+The Chinese manuscript in `book/`, the generated reading site in `wiki/`, the
+single-file `book.html`, the EPUB under `exports/`, and `README.md`,
+`DESIGN.md`, `RESEARCH_NOTES.md`, `VALIDATION.md` are licensed under the
+Creative Commons Attribution 4.0 International License (CC BY 4.0).
+
+You may share and adapt the material for any purpose, including commercially,
+provided you give appropriate credit and indicate whether changes were made.
+
+License text: https://creativecommons.org/licenses/by/4.0/legalcode
+
+## Teaching code
+
+`examples/`, `wiki/build.mjs`, `wiki/verify.py`, `wiki/export_epub.py` and
+`sources/capture_sources.py` are licensed under the Apache License, Version 2.0.
+
+License text: https://www.apache.org/licenses/LICENSE-2.0
+
+## Upstream material
+
+This book describes `opensandbox-group/OpenSandbox`. Upstream code is licensed
+under Apache-2.0; upstream documentation is made available under CC BY 4.0
+(Technical Charter, section 7.b.iv). This repository does not redistribute the
+upstream repository. Short quotations and file paths are attributed to the
+pinned commit in `sources/inventory.json` and in the book's appendix B.
+
+"OpenSandbox" is the name of the upstream project. This book is an independent
+commentary and is not an official publication of that project.

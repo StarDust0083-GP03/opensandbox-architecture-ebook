@@ -1,0 +1,144 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>身份与多租户：三种凭据，两种隔离 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="14-identity-tenancy"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#单租户-一把-key-与它的启动断言">单租户：一把 key 与它的启动断言</a></li><li><a href="#多租户-把身份交给提供方">多租户：把身份交给提供方</a></li><li><a href="#身份为什么放在提供方">身份为什么放在提供方</a></li><li><a href="#隔离模型-服务器不承诺它做不到的事">隔离模型：服务器不承诺它做不到的事</a></li><li><a href="#fast-sandbox-的租户映射">Fast Sandbox 的租户映射</a></li><li><a href="#命名空间不是唯一边界">命名空间不是唯一边界</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="身份与多租户-三种凭据-两种隔离">身份与多租户：三种凭据，两种隔离</h1><p>到这一篇为止，「谁在操作」这个问题一直被我含糊带过。现在要把身份拆开。</p>
+<p>OpenSandbox 里至少有三种凭据，它们保护的东西完全不同：</p>
+<table>
+<thead>
+<tr>
+<th>凭据</th>
+<th>传输方式</th>
+<th>保护的对象</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生命周期 API key</td>
+<td><code>OPEN-SANDBOX-API-KEY</code> 头</td>
+<td>管理沙箱（创建、删除、暂停、续期）</td>
+</tr>
+<tr>
+<td>execd 访问令牌</td>
+<td><code>X-EXECD-ACCESS-TOKEN</code> 头或 PTY 子协议</td>
+<td>进入沙箱执行命令、读写文件</td>
+</tr>
+<tr>
+<td>endpoint 头（secure access / sidecar auth）</td>
+<td>endpoint 响应里下发</td>
+<td>访问沙箱内服务，或调用 egress 策略接口</td>
+</tr>
+</tbody></table>
+<p>这三者不可互换。文档在数据面契约里专门写了一句：不要硬编码 execd 地址，也不要假设「生命周期 API key 单独就能授权直连沙箱」。这句话是整篇的基础——<strong>「能管理沙箱」和「能进入沙箱」是两个权限</strong>。</p>
+<h2 id="单租户-一把-key-与它的启动断言">单租户：一把 key 与它的启动断言</h2><p>最简单的形态是一把 <code>server.api_key</code>。设置后，除 <code>/health</code>、<code>/version</code>、<code>/docs</code>、<code>/redoc</code>、<code>/openapi.json</code> 之外的所有端点都要求这个头。</p>
+<p>没设置时会发生什么，第 4 篇讲过一半：非交互环境（Docker/Kubernetes/CI）必须显式设 <code>OPENSANDBOX_INSECURE_SERVER=YES</code> 才允许启动，交互式 TTY 则要求输入 <code>YES</code>，30 秒超时。</p>
+<p>这个设计的价值不在「防止误配」而在「让误配可见」。一个无认证的服务器不会在某个请求上失败，它会在每个请求上成功，直到有人读到不该读的东西。</p>
+<h2 id="多租户-把身份交给提供方">多租户：把身份交给提供方</h2><p>多租户是<strong>可选、且仅 Kubernetes 支持</strong>的。Docker 模式下配置了 <code>[tenants]</code>，服务器会以 fatal error 拒绝启动。</p>
+<p>请求路径变成：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">OPEN-SANDBOX-API-KEY
+  → 租户提供方查 key
+      找到   → 注入 tenant context，路由到该租户命名空间
+      没找到 → 401
+  → （未配置租户时）回落到 server.api_key 校验</code></pre></div><p>具体六步（文档的编号）：</p>
+<ol>
+<li>认证中间件通过提供方把 API key 解析成 <code>TenantEntry</code>；</li>
+<li>租户命名空间写进请求作用域的 <code>ContextVar</code>；</li>
+<li>生命周期操作（create/list/get/delete）使用解析出的命名空间；</li>
+<li>list 只返回已认证租户命名空间里的沙箱；</li>
+<li>代理路由（<code>/sandboxes/{id}/proxy/...</code>）在多租户模式下也要求 API key——这是与单租户的一个行为差异，文档专门用提示框标了出来；</li>
+<li>创建时在工作负载上打 <code>opensandbox.io/tenant=&lt;name&gt;</code> 标签。<strong>多个租户共享一个命名空间时</strong>，list/get/delete/proxy 会隐藏其他租户的带标签沙箱（返回 <code>404</code>），未打标签的历史沙箱在过期前仍然可见。</li>
+</ol>
+<p>第 6 条值得多想一步。它说明隔离有两层：命名空间级的硬隔离，以及共享命名空间时的标签级软隔离。软隔离的失败模式是「历史沙箱泄漏到别人的列表里」，而它们的处理方式是让它自然过期——这是一个有意的、写进文档的取舍（迁移期不能把老沙箱变成不可见）。</p>
+<h2 id="身份为什么放在提供方">身份为什么放在提供方</h2><p>租户来自 <code>TenantProvider</code>，不是服务器配置。两个实现：</p>
+<ul>
+<li><strong>file</strong>：本地 TOML，改动热重载约 2 秒；</li>
+<li><strong>http</strong>：远程端点，按 TTL 缓存，端点不可达且缓存超过 <code>max_stale_seconds</code> 时返回 <code>503 TENANT_PROVIDER_UNAVAILABLE</code>。</li>
+</ul>
+<p>文档给的理由是「身份住在提供方里，租户管理就留在拥有身份的平台那边」。这条设计判断很重要：租户列表通常已经存在于某个 IAM 或内部平台，把它抄一份到沙箱服务器配置里，等于制造第二个事实来源。</p>
+<p>三个启动期断言把这条设计锁住：</p>
+<ul>
+<li><code>[tenants]</code> 与 <code>server.api_key</code> <strong>不能同时存在</strong>（启动报 &quot;Remove server.api_key from server.toml&quot;）；</li>
+<li>每个租户的 API key <strong>必须唯一</strong>（重复 key 启动报错）；</li>
+<li>每个可枚举的租户命名空间<strong>必须存在且可访问</strong>（Kubernetes 后端启动时逐个校验，失败则 <code>os._exit(1)</code>）。</li>
+</ul>
+<p>第三条的实现细节还留了一个例外，注释写得很清楚：fsb 的 CR reader 是惰性的，不能让一个纯 legacy 部署在启动时被它拖住，所以那条路径跳过直接校验，改为首次读取时检查集群凭据与 CR 权限。</p>
+<h2 id="隔离模型-服务器不承诺它做不到的事">隔离模型：服务器不承诺它做不到的事</h2><p>多租户文档里有一句话很干脆：<strong>服务器本身不执行资源配额或网络策略，隔离委托给 Kubernetes</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>机制</th>
+<th>作用域</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>资源配额</td>
+<td><code>ResourceQuota</code></td>
+<td>每命名空间 CPU/内存/存储</td>
+</tr>
+<tr>
+<td>默认限额</td>
+<td><code>LimitRange</code></td>
+<td>每命名空间默认容器资源</td>
+</tr>
+<tr>
+<td>网络隔离</td>
+<td>egress sidecar</td>
+<td>每沙箱出向策略</td>
+</tr>
+<tr>
+<td>沙箱数量</td>
+<td><code>ResourceQuota</code>（Pod 数）</td>
+<td>每命名空间 Pod 上限</td>
+</tr>
+<tr>
+<td>RBAC</td>
+<td><code>RoleBinding</code></td>
+<td>每命名空间 API 访问</td>
+</tr>
+</tbody></table>
+<p>还有一条必须点出来的现状：<strong>池管理路由（<code>/pools</code>）目前不是租户作用域的</strong>，它们在服务器配置的默认命名空间里操作。池是共享资源。需要每租户池隔离的部署，要么拆成多个服务器实例，要么等后续支持。</p>
+<p>这条「不是租户作用域」的声明比任何功能列表都有价值：它明确告诉你哪里的多租户假设不成立。</p>
+<h2 id="fast-sandbox-的租户映射">Fast Sandbox 的租户映射</h2><p>Fast Sandbox 的租户处理是另一套实现：租户提供方把每个已认证租户映射到一个 fast-sandbox 命名空间。请求作用域的操作从 context 解析命名空间；<strong>后台工作</strong>（没有请求 context）则回落到按沙箱 ID 反查。</p>
+<p>这个回落是必要的，也是风险的来源：后台的 janitor、空闲暂停扫描、快照收敛都拿不到请求上下文，只能靠「沙箱属于谁」的数据反查。所以那条数据必须准确——这也是为什么第 8 篇强调「CR 是意图与放置的事实来源」。</p>
+<h2 id="命名空间不是唯一边界">命名空间不是唯一边界</h2><p>读这一章时要抵抗一个诱惑：把「一个租户一个命名空间」当成完整的隔离。它不是。</p>
+<ul>
+<li><strong>同一个命名空间内的租户</strong>之间只有标签级软隔离（上面第 6 条）；</li>
+<li><strong>execd 的 <code>/v1/filesystem/{uid}/{gid}</code> 身份切换</strong>解决的是同一沙箱内多会话的权限问题，文档明确写它<strong>不是租户隔离边界</strong>；</li>
+<li><strong><code>secureAccess</code> 的 endpoint 头</strong>是访问凭据，不是身份——它不区分「谁在调用」，只证明「你有权访问这个端口」；</li>
+<li><strong>Credential Vault</strong> 隔离的是秘密，不是身份。</li>
+</ul>
+<p>这四条合起来说明：这个平台的身份模型是<strong>分层且不统一的</strong>。每一层解决一个具体问题，没有一层假装自己是全局的授权中心。读代码时如果发现某个模块不检查租户，先看它是否在别的层被保护——但也不要假设它一定被保护，这正是第 15 篇要讨论的「隔离边界要为每一层单独验证」。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>三种凭据保护三种不同的东西：管理沙箱、进入沙箱、访问沙箱服务；不可互换。</li>
+<li>无 API key 的启动需要显式确认，目的是让不安全配置<strong>可见</strong>而不是「尽量可用」。</li>
+<li>多租户是可选、仅 Kubernetes；Docker + tenants 直接拒绝启动。</li>
+<li>身份住在提供方（file/http），不在服务器配置里；三条例行启动断言锁住配置合法性。</li>
+<li>共享命名空间时靠 <code>opensandbox.io/tenant</code> 标签做软隔离，未打标签的历史沙箱在过期前仍可见。</li>
+<li>服务器不执行配额，隔离委托给 Kubernetes；池路由目前<strong>不是</strong>租户作用域的。</li>
+<li>命名空间不是唯一边界：文件身份、endpoint 头、Vault 各管一件事，没有全局授权中心。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/middleware/auth.py</code></td>
+<td>API key 校验与租户解析</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/tenants/</code></td>
+<td>file / http 两个提供方与启动校验</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/pool.py</code></td>
+<td>池路由的命名空间行为</td>
+</tr>
+<tr>
+<td><code>docs/guides/multi-tenancy.md</code></td>
+<td>六步流程、隔离模型、故障排查</td>
+</tr>
+<tr>
+<td><code>docs/guides/secure-access.md</code></td>
+<td>endpoint 凭据的边界</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="13-lifecycle-state.html"><small>上一篇</small>状态机：暂停、恢复、快照与过期</a><a href="15-isolation.html"><small>下一篇</small>隔离与加固：从 runc 到 microVM</a></nav></main><script src="../assets/wiki.js"></script></body></html>

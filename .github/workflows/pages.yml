@@ -1,0 +1,40 @@
+name: Deploy ebook to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wiki/package-lock.json
+      - run: npm ci --prefix wiki --ignore-scripts
+      - run: npm run build --prefix wiki
+      - run: npm run verify --prefix wiki
+      - run: python3 examples/mini_osb.py
+      - run: python3 -m unittest discover -s examples -v
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: wiki
+      - uses: actions/deploy-pages@v4
+        id: deployment

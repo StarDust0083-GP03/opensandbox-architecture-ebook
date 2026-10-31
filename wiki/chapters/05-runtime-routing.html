@@ -1,0 +1,192 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>运行时路由：一个接口装下三种后端 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="05-runtime-routing"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#接口全貌">接口全貌</a></li><li><a href="#工厂-四行决定三个后端">工厂：四行决定三个后端</a></li><li><a href="#组合路由器-前缀即分发">组合路由器：前缀即分发</a></li><li><a href="#快照的跨后端路由">快照的跨后端路由</a></li><li><a href="#13-个方法在三种后端上的样子">13 个方法在三种后端上的样子</a></li><li><a href="#不支持的功能怎么失败">不支持的功能怎么失败</a></li><li><a href="#后端内部的适配层">后端内部的适配层</a></li><li><a href="#抽象够不够">抽象够不够</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="运行时路由-一个接口装下三种后端">运行时路由：一个接口装下三种后端</h1><p>第 4 篇说「API 层不碰运行时」。那么运行时到底是什么形状？答案是 <code>SandboxService</code> 这个抽象类，它定义了 13 个方法。</p>
+<h2 id="接口全貌">接口全貌</h2><div class="table-wrap"><pre tabindex="0"><code class="hljs">create_sandbox          list_sandboxes         get_sandbox
+delete_sandbox          pause_sandbox          resume_sandbox
+renew_expiration        patch_sandbox_metadata
+get_endpoint
+get_sandbox_log_diagnostics    get_sandbox_event_diagnostics
+get_sandbox_logs / get_sandbox_inspect / get_sandbox_events</code></pre></div><p>前八个是生命周期，第九个是访问，后四个是诊断。这个划分本身就说明了一件事：<strong>接口是按「调用方能做的事」组织的，不是按后端实现组织的</strong>。诊断能进入接口，是因为运维和 AI 排障需要它，而不是因为 Docker 恰好有 <code>docker logs</code>。</p>
+<p>接口里还有两个非抽象成员值得注意。一个是 <code>set_tenant_provider</code>，默认空实现（非 Kubernetes 后端不需要）；另一个是 <code>close</code>，用于释放后台 reader 和连接。两者都是「可选能力」——这暗示了抽象类的一个现实：<strong>接口能统一签名，统一不了依赖</strong>。</p>
+<h2 id="工厂-四行决定三个后端">工厂：四行决定三个后端</h2><div class="table-wrap"><pre tabindex="0"><code class="hljs">implementations = {<span class="hljs-string">&quot;docker&quot;</span>: DockerSandboxService, <span class="hljs-string">&quot;kubernetes&quot;</span>: KubernetesSandboxService}
+<span class="hljs-keyword">if</span> selected_type <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> implementations:
+    <span class="hljs-keyword">raise</span> ValueError(...)
+<span class="hljs-keyword">if</span> selected_type == <span class="hljs-string">&quot;kubernetes&quot;</span>:
+    implementation = KubernetesSandboxService(config=active_config)
+    <span class="hljs-keyword">return</span> CompositeSandboxService(implementation,
+        FastSandboxService(active_config, k8s_client=implementation.k8s_client))
+<span class="hljs-keyword">return</span> implementations[selected_type](config=active_config)</code></pre></div><p>三个细节：</p>
+<ol>
+<li><code>runtime.type</code> 的取值集合只有两个，Fast Sandbox 不在这里注册。</li>
+<li><code>FastSandboxService</code> 复用 <code>KubernetesSandboxService</code> 已经建好的 <code>k8s_client</code>，不重复建连。</li>
+<li>不认识的类型直接抛错，不在启动后降级。</li>
+</ol>
+<p>第 3 点是第 4 篇「启动即失败」原则在小处的复现：配置写错了，进程根本起不来。</p>
+<h2 id="组合路由器-前缀即分发">组合路由器：前缀即分发</h2><p><code>CompositeSandboxService</code> 把两个实现合成一个，规则只有两条：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_backend</span>(<span class="hljs-params">self, sandbox_id</span>):
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">self</span>._fsb <span class="hljs-keyword">if</span> sandbox_id.startswith(<span class="hljs-string">&quot;fsb-&quot;</span>) <span class="hljs-keyword">else</span> <span class="hljs-variable language_">self</span>._kubernetes
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">create_sandbox</span>(<span class="hljs-params">self, request</span>):
+    <span class="hljs-keyword">if</span> (request.template_id <span class="hljs-keyword">or</span> <span class="hljs-string">&quot;&quot;</span>).strip():
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._fsb.create_sandbox(request)
+    <span class="hljs-keyword">if</span> (request.snapshot_id <span class="hljs-keyword">or</span> <span class="hljs-string">&quot;&quot;</span>).strip() <span class="hljs-keyword">and</span> request.resolved_snapshot_backend == <span class="hljs-string">&quot;fsb&quot;</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._fsb.create_sandbox(request)
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._kubernetes.create_sandbox(request)</code></pre></div><p>创建时看请求来源，之后看 ID 前缀。文档给的理由是「没有新的公开 API，也没有沙箱到后端的注册表」。</p>
+<p>这个设计的优点很实在：<strong>零状态</strong>。不需要一张「sandbox → backend」的表，也就不需要维护它的一致性、不需要在切换后端时迁移。第 17 篇讨论故障恢复时会看到它的好处：控制面崩溃重启后，路由信息仍然在 ID 里。</p>
+<p>缺点也同样实在：</p>
+<ul>
+<li><strong>前缀是硬编码的知识</strong>。任何知道 <code>fsb-</code> 含义的代码都成了隐式耦合点，包括 SDK（它通过 <code>OPEN-SANDBOX-ORIGIN</code> 头而非前缀来判断，但行为要一致）。</li>
+<li><strong>前缀不能表达第三个后端</strong>。如果将来出现第四种运行时，要么再挑一个前缀，要么改成真正的注册表。</li>
+<li><strong>前缀由谁生成</strong>必须严格约束。上游的做法是每个后端自己生成 ID，模板后端加 <code>fsb-</code> 前缀；一旦某个后端漏了前缀，路由会静默走错分支——这不是崩溃，是错误的行为，更难查。</li>
+</ul>
+<p>我倾向于把它看成一次有意识的取舍：在只有两个分支的时候，前缀分发比注册表省下的复杂度是真实收益；当分支增长到三个，这笔账要重算。</p>
+<h2 id="快照的跨后端路由">快照的跨后端路由</h2><p>创建请求里还有一个不显眼但重要的分支：<code>snapshotId</code> 走哪个后端？</p>
+<p>答案不是「根据当前 runtime 猜」，而是<strong>问快照记录</strong>。<code>CreateSandboxRequest</code> 里有一个私有属性 <code>_resolved_snapshot_backend</code>，在路由之前由 <code>resolve_sandbox_image_from_request</code> 从快照行里读出 <code>restore_config.backend</code>。这样「这个快照是谁做的」由数据决定，而不是由当前部署的配置决定。</p>
+<p>这条规则的必要性在于：快照是持久制品，可能产生于另一个后端或另一次部署。Docker 做的快照是本地 OCI 镜像，Kubernetes 做的是推送到 registry 的镜像，Fast Sandbox 做的是内容寻址的 artifact set。三者的恢复路径完全不同，靠猜一定会猜错。</p>
+<h2 id="13-个方法在三种后端上的样子">13 个方法在三种后端上的样子</h2><p>接口统一，实现各不相同。这张表是本章的核心：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>Docker</th>
+<th>Kubernetes 容器</th>
+<th>Fast Sandbox</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>create</code></td>
+<td>拉镜像、建容器、注入 execd、分配端口</td>
+<td>建 <code>BatchSandbox</code> 或从 Pool 分配、等 Running</td>
+<td>经 FastPath 提交 intent，CR 收敛</td>
+</tr>
+<tr>
+<td><code>list</code></td>
+<td>按标签查容器</td>
+<td>合并两个 provider 的对象列表</td>
+<td>读 <code>sandbox.fast.io</code> CR</td>
+</tr>
+<tr>
+<td><code>get</code></td>
+<td>inspect 容器 + 标签</td>
+<td>读工作负载状态 + 注解</td>
+<td>读 CR，状态由观测得出</td>
+</tr>
+<tr>
+<td><code>delete</code></td>
+<td>停容器、清端口、删卷</td>
+<td>删除 CR，等待 Pod 消失</td>
+<td>提交删除，janitor 兜底</td>
+</tr>
+<tr>
+<td><code>pause</code></td>
+<td>容器级 pause（先冻结主容器再冻结 sidecar）</td>
+<td>提交 rootfs 镜像、释放 Pod</td>
+<td>检查点写入 artifact store，释放 Fastlet</td>
+</tr>
+<tr>
+<td><code>resume</code></td>
+<td>容器级 unpause（先解 sidecar）</td>
+<td>改模板为新镜像、重建 Pod</td>
+<td>在任意 Fastlet 恢复检查点</td>
+</tr>
+<tr>
+<td><code>renew</code></td>
+<td>改定时器</td>
+<td>改 <code>expireTime</code></td>
+<td>改 CR 的 <code>expireTime</code></td>
+</tr>
+<tr>
+<td><code>endpoint</code></td>
+<td>宿主端口 + <code>/proxy/{port}</code></td>
+<td>ingress 头路由或 pod IP</td>
+<td>签名 <code>f1.</code> scope</td>
+</tr>
+<tr>
+<td>诊断</td>
+<td>容器日志/事件</td>
+<td>工作负载日志/事件</td>
+<td>只支持 runtime 事件（日志未实现）</td>
+</tr>
+</tbody></table>
+<p>最后一行是诚实清单：Fast Sandbox 的诊断能力比另外两个弱，文档写明了「log collection is not implemented there」。</p>
+<h2 id="不支持的功能怎么失败">不支持的功能怎么失败</h2><p>接口统一之后，最危险的情况是「方法存在但后端不支持」。上游的处理是<strong>按操作返回明确错误</strong>，而不是编造成功：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>状态码</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker 上使用模板管理</td>
+<td><code>501</code></td>
+</tr>
+<tr>
+<td>不支持的运行时上做快照预检</td>
+<td><code>409</code></td>
+</tr>
+<tr>
+<td>隔离会话的 diff/commit 未实现</td>
+<td><code>503</code></td>
+</tr>
+<tr>
+<td>Fast Sandbox 上带 <code>credentialProxy.enabled</code> 或卷挂载创建</td>
+<td>请求被拒绝（adapter 明确拒绝）</td>
+</tr>
+</tbody></table>
+<p>文档承认「没有统一的不支持状态码」，并把这当成需要显式文档化的现状。我认为这是对的选择：统一成一个状态码会让调用方无法区分「这个后端不支持」「你没权限」「暂时不可用」——而这三种情况应该触发完全不同的客户端行为（换后端 / 换凭据 / 重试）。</p>
+<h2 id="后端内部的适配层">后端内部的适配层</h2><p>抽象接口不覆盖的差异，被压进各后端自己的目录里。几个典型例子：</p>
+<p><strong>Docker 的 Windows 特化。</strong> <code>services/docker/windows_profile.py</code> 单独处理 Windows 容器的差异：环境变量名大小写不敏感、批处理文件需要 shell 语法、文件权限语义不同。这些没有污染接口。</p>
+<p><strong>端口的分配与回收。</strong> <code>services/docker/port_allocator.py</code> 负责在非 host 网络模式下分配宿主端口。这是 Docker 独有的概念（Pod 没有「宿主端口映射」），所以它只存在于 Docker 目录里。</p>
+<p><strong>安全运行时的解析。</strong> <code>services/runtime_resolver.py</code> 把服务端配置翻译成后端参数：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">DEFAULT_DOCKER_RUNTIMES = {<span class="hljs-string">&quot;gvisor&quot;</span>: <span class="hljs-string">&quot;runsc&quot;</span>, <span class="hljs-string">&quot;kata&quot;</span>: <span class="hljs-string">&quot;kata-runtime&quot;</span>}
+DEFAULT_K8S_RUNTIME_CLASSES = {<span class="hljs-string">&quot;gvisor&quot;</span>: <span class="hljs-string">&quot;gvisor&quot;</span>, <span class="hljs-string">&quot;kata&quot;</span>: <span class="hljs-string">&quot;kata-qemu&quot;</span>, <span class="hljs-string">&quot;firecracker&quot;</span>: <span class="hljs-string">&quot;kata-fc&quot;</span>}</code></pre></div><p>同一份 <code>[secure_runtime] type = &quot;kata&quot;</code> 配置，在 Docker 上变成 <code>--runtime kata-runtime</code>，在 Kubernetes 上变成 <code>runtimeClassName: kata-qemu</code>。调用方完全看不到这个差异——它连字段都没有。</p>
+<p><strong>Kubernetes 的工作负载 provider。</strong> <code>kubernetes.workload_provider</code> 可取 <code>batchsandbox</code>（默认，自有 CRD）或 <code>agent-sandbox</code>（<code>kubernetes-sigs/agent-sandbox</code>）。这是「同一后端下的两种实现」，比「三个后端」更细一层。上游没有把它做成两个 <code>runtime.type</code>，理由大概是：客户端不该关心集群里装的是哪套 CRD。</p>
+<h2 id="抽象够不够">抽象够不够</h2><p>用一次思想实验检验这个接口：如果要接第四种后端（比如本地 microVM 或者一台远程 SSH 主机），需要改什么？</p>
+<ul>
+<li>实现 13 个方法；</li>
+<li>提供一个 ID 生成规则，最好带前缀；</li>
+<li>在 <code>factory.py</code> 注册，或者扩展 <code>Composite</code> 的分支；</li>
+<li>在 <code>docs/api/implementation-compatibility.md</code> 里写清哪些能力不支持。</li>
+</ul>
+<p>不需要改 API、schema、SDK。这说明抽象的形状是对的。</p>
+<p>但也有一条暗线：<strong>endpoint 的语义</strong>。接口只要求返回一个 <code>Endpoint</code>，没有约束它「必须直连」「必须支持 WebSocket」「必须能带自定义头」。这些差异被写在了文档里，而不是类型里。类型系统无法表达「这个后端返回的 endpoint 不支持任意 TCP 转发」——第 10 篇会看到这条限制的实际后果。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li><code>SandboxService</code> 有 13 个方法：8 个生命周期、1 个访问、4 个诊断，按调用方能力而非后端实现组织。</li>
+<li>工厂只认两个 <code>runtime.type</code>，Fast Sandbox 是 Kubernetes 模式下的组合分支。</li>
+<li>前缀分发换来零状态路由，代价是隐式耦合和「不能表达第三个后端」。</li>
+<li>快照创建走哪个后端由快照记录决定，不由当前配置决定。</li>
+<li>不支持的功能按操作返回 <code>501</code>/<code>409</code>/<code>503</code>，不编造成功。</li>
+<li>后端差异被压进各后端目录，接口只保留跨后端的形状。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/services/sandbox_service.py</code></td>
+<td>13 个抽象方法与两个可选成员</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/factory.py</code></td>
+<td>工厂与组合</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/composite_service.py</code></td>
+<td>前缀路由、创建分流</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/runtime_resolver.py</code></td>
+<td>安全运行时的后端翻译与启动校验</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/snapshot_restore.py</code></td>
+<td>快照到后端的解析</td>
+</tr>
+<tr>
+<td><code>docs/api/implementation-compatibility.md</code></td>
+<td>后端能力差异的权威表述</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="04-lifecycle-server.html"><small>上一篇</small>控制平面：一台 FastAPI 服务器的四条不变量</a><a href="06-docker.html"><small>下一篇</small>Docker 后端：一个宿主端口装下整个容器</a></nav></main><script src="../assets/wiki.js"></script></body></html>

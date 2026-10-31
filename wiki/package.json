@@ -1,0 +1,13 @@
+{
+  "name": "opensandbox-architecture-book",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "verify": "python3 verify.py"
+  },
+  "dependencies": {
+    "highlight.js": "11.12.0",
+    "marked": "14.1.4"
+  }
+}

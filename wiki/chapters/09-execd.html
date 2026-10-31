@@ -1,0 +1,175 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>数据平面：execd 的命令、文件与流式语义 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="09-execd"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#一个-api-一句令牌">一个 API，一句令牌</a></li><li><a href="#命令-两种形式-两种模式-三条语义">命令：两种形式、两种模式、三条语义</a></li><li><a href="#bash-会话-合并流与-16-mib-的行">Bash 会话：合并流与 16 MiB 的行</a></li><li><a href="#代码执行-jupyter-是后端">代码执行：Jupyter 是后端</a></li><li><a href="#pty-一个持有者-若干观看者">PTY：一个持有者，若干观看者</a></li><li><a href="#文件-先暂存再改名">文件：先暂存再改名</a></li><li><a href="#隔离会话-bubblewrap-的每执行命名空间">隔离会话：bubblewrap 的每执行命名空间</a></li><li><a href="#分层防护与-它到底生效了吗">分层防护与「它到底生效了吗」</a></li><li><a href="#当-init-与-每次分配一个新身份">当 init 与「每次分配一个新身份」</a></li><li><a href="#指标与代理">指标与代理</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="数据平面-execd-的命令-文件与流式语义">数据平面：execd 的命令、文件与流式语义</h1><p>前面八篇都在沙箱外面。这一篇进到里面。</p>
+<p><code>components/execd/</code> 是一个 Go 写的守护进程，用 Gin 做 HTTP，默认监听 <code>44772</code>。它是 OpenSandbox 的沙箱内执行 API 参考实现：命令、文件、目录、代码上下文、PTY、指标、隔离会话。它同时还能当沙箱的 init 进程。</p>
+<p>它会出现在三种部署形态里：Docker 里由服务器暂存二进制；Kubernetes 里由 init 容器把 execd 与 <code>bootstrap.sh</code> 从 <code>execd_image</code> 拷进 <code>emptyDir</code>，再挂给主容器；Fast Sandbox 里烘在 guest 镜像里。</p>
+<h2 id="一个-api-一句令牌">一个 API，一句令牌</h2><p>所有端点都在同一个 API 下。开启访问令牌后，每个端点都要求 <code>X-EXECD-ACCESS-TOKEN</code>，<strong>只有存活与就绪探针永远开放</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>区域</th>
+<th>端点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>健康</td>
+<td><code>/ping</code>、<code>/ready</code></td>
+<td>无需令牌</td>
+</tr>
+<tr>
+<td>命令</td>
+<td><code>/command</code>、状态、日志</td>
+<td>前台流式或后台轮询</td>
+</tr>
+<tr>
+<td>Shell 会话</td>
+<td><code>/session</code>、<code>/session/{id}/run</code></td>
+<td>跨调用保持状态</td>
+</tr>
+<tr>
+<td>代码</td>
+<td><code>/code</code>、<code>/code/contexts</code></td>
+<td>Jupyter 内核上下文</td>
+</tr>
+<tr>
+<td>终端</td>
+<td><code>/pty</code></td>
+<td>WebSocket 接入</td>
+</tr>
+<tr>
+<td>文件</td>
+<td><code>/files/*</code>、<code>/directories</code></td>
+<td>完整文件系统面</td>
+</tr>
+<tr>
+<td>隔离会话</td>
+<td><code>/v1/isolated/*</code></td>
+<td>私有命名空间的 shell</td>
+</tr>
+<tr>
+<td>指标</td>
+<td><code>/metrics</code>、<code>/metrics/watch</code></td>
+<td>快照与实时流</td>
+</tr>
+<tr>
+<td>反向代理</td>
+<td><code>/proxy/{port}</code></td>
+<td>一个宿主端口触达所有端口</td>
+</tr>
+</tbody></table>
+<p>这个令牌的语义要看清：它是<strong>沙箱级</strong>的凭据，不是「终端票」。文档明确说它应该通过授权的 endpoint 解析流程拿到，不要放进 URL 或浏览器持久存储，生产环境要用 WSS——因为 base64url 不是加密。</p>
+<h2 id="命令-两种形式-两种模式-三条语义">命令：两种形式、两种模式、三条语义</h2><p>命令有两种提交形式：</p>
+<ul>
+<li><strong>shell 语法</strong>：管道、重定向、环境展开，就是你在提示符下会敲的东西；</li>
+<li><strong>直接 argv</strong>：程序 + 字面参数，不经 shell 解析。当命令的一部分来自不可信输入时更安全，并且能精确保留空串和特殊字符。</li>
+</ul>
+<p>两种模式：</p>
+<ul>
+<li><strong>前台</strong>：命令运行期间以 SSE 实时推流，返回后流关闭；</li>
+<li><strong>后台</strong>：立即返回，之后轮询状态、增量取日志。已完成的后台输出保留 24 小时，<strong>运行中的命令永不被清理</strong>。</li>
+</ul>
+<p>三条语义是第 3 篇提到的契约条款，这里说清它们为什么必须存在。</p>
+<p><strong>行尾保留。</strong> 前台 <code>stdout</code>/<code>stderr</code> 事件的文本保留命令原始的行尾（<code>\n</code>、<code>\r</code>、<code>\r\n</code>）。按流拼接事件文本即可还原输出，最后一个事件可能是不完整的一段。这一条看似琐碎，但它决定了客户端能否实现「逐行渲染进度条」这类需求——如果 execd 悄悄把 <code>\r</code> 换成 <code>\n</code>，进度条就变成几千行日志。</p>
+<p><strong>成功也有退出码。</strong> 前台 <code>POST /command</code> 以 <code>execution_complete</code> 携带 <code>exit_code: 0</code> 结束。这个字段是<strong>可选</strong>的：后台启动确认里没有，代码执行事件里也没有，缺失不代表成功。非零退出保留在 <code>error</code> 事件的 <code>error.exit_code</code> 上。</p>
+<p><strong>流提前结束不构成成功。</strong> 在终止事件之前断流，只能当作不确定。这一条是对「客户端乐观推断」的明确拒绝。</p>
+<p>文档还记录了一次真实兼容事故，值得完整转述，因为它示范了「协议演进如何变成客户端崩溃」：<code>sandbox-api 1.0.18</code> 之前的 SDK 不认识 <code>exit_code</code> 字段。当消费者的 classpath 解析到不兼容的 kotlinx-serialization 运行时时，解码未知字段会以 <code>AbstractMethodError</code> 崩溃——<strong>命令在沙箱里跑完了，客户端调用永不返回，也不打日志</strong>。</p>
+<p>上游的处置分两层：短期给 <code>EXECD_SSE_LEGACY_COMPAT=true</code>，让 execd 在两个事件里都省掉该字段（成功的命令不损失信息，因为值恒为 0，新 SDK 会推断）；长期是让 SDK 遮蔽自己的序列化运行时（<code>sandbox-api 1.0.18</code> 起），从而消除「每加一个字段就多一个风险」的结构问题。这段的价值在于它承认了「加一个可选字段」在强类型客户端生态里不是安全的操作。</p>
+<h2 id="bash-会话-合并流与-16-mib-的行">Bash 会话：合并流与 16 MiB 的行</h2><p><code>/session</code> 提供一个跨调用有状态的 shell。两次 <code>run</code> 之间共享 shell 状态（<code>export X=1</code> 对下一次可见），这是它和命令执行的根本区别。</p>
+<p>实现上有几个具体决定：</p>
+<ul>
+<li><strong>合并流</strong>。会话运行只推一路 <code>stdout</code> 事件，会话的 stderr 被合进去。因为 shell 会话的语义是「一个终端」，分离两路反而失真。</li>
+<li><strong>空行保留</strong>。只有行尾的空行也是一个事件。</li>
+<li><strong>超长行切分</strong>。超过 16 MiB 的行被拆成多个事件，只有最后一个带行尾。</li>
+<li><strong>shell 回退</strong>。镜像有 bash 就用 bash，最小镜像回退到 POSIX <code>sh</code>——此时命令必须是 <code>sh</code> 兼容的。Windows 沙箱也支持（环境变量名大小写不敏感，批处理文件需要 shell 语法）。</li>
+</ul>
+<h2 id="代码执行-jupyter-是后端">代码执行：Jupyter 是后端</h2><p>代码上下文是 execd 管理的持久 Jupyter 内核。你在一个上下文里执行代码，收到流式结果（标准输出、执行结果、错误），多次调用共享状态——和 notebook 一样。</p>
+<p>官方 code-interpreter 镜像（在 <code>opensandbox-group/sandbox-images</code> 仓库）带 Python、Java、Node.js、Go 运行时和对应内核。语言版本由镜像控制，经 <code>PYTHON_VERSION</code> 这类环境变量选择。</p>
+<p>这里有一个架构上的分层：Code Interpreter SDK 是可选的高层客户端；底层的执行 API 通过普通沙箱 SDK 或直接调 execd 也能用。第 3 篇提到「shell-only 镜像不支持 notebook 式代码执行」——因为代码执行的实现依赖 Jupyter 与已装内核，不是 execd 凭空提供的。</p>
+<h2 id="pty-一个持有者-若干观看者">PTY：一个持有者，若干观看者</h2><p>终端会话是真的 PTY，走 WebSocket，不是「包装过的命令」。所以编辑器、REPL、Agent CLI 这类交互程序能正常工作。</p>
+<p>共享模型是刻意设计的：<strong>恰好一个 holder 拥有键盘，任意多个 viewer 可以观看</strong>。viewer 先回放已打印内容，再跟实时输出。用途很具体：监督、调试助手、让第二个人看着 Agent 干活但不给它输入。</p>
+<p>浏览器有一个现实问题：WebSocket 握手不能带任意头。所以 <code>GET /pty/{sessionId}/ws</code> 允许用子协议传凭据：offer <code>opensandbox-pty</code> 应用子协议 + 一个凭据子协议，后缀是 execd 令牌的<strong>无填充 base64url</strong>。execd 验证后移除凭据项，只协商 <code>opensandbox-pty</code>。</p>
+<p>规则写得很细，说明这块踩过坑：</p>
+<ul>
+<li>显式 <code>X-EXECD-ACCESS-TOKEN</code> 头优先，<strong>即使它是空或非法</strong>，绝不回退到子协议；</li>
+<li>重复凭据、编码错误、没有应用子协议只有凭据，都返回 <code>401</code>；</li>
+<li>既有走头的客户端不需要提供子协议；</li>
+<li>其他 HTTP API（含 PTY 创建与删除）仍然要求头。</li>
+</ul>
+<h2 id="文件-先暂存再改名">文件：先暂存再改名</h2><p>文件 API 覆盖整棵文件系统树：流式上传下载、列举、搜索、改权限、替换内容、移动、删除。</p>
+<p>上传有一个值得学的实现细节：<strong>先写到目标旁边的暂存文件，再 rename 就位</strong>。这样一次中途失败的复制不会截断它正在替换的旧文件。前提是对所在目录有写权限；当只有目标文件可写（例如 <code>0555</code> 目录里的 <code>0666</code> 文件）时，execd 回退到原地写入——上传仍会成功，但部分失败可能截断旧内容。</p>
+<p>几个附带承诺：</p>
+<ul>
+<li>替换保留目标的 mode，包括 setuid/setgid/sticky 位，并在平台允许时保留 owner/group；</li>
+<li>目标已存在时，暂存文件私有创建，且从目录列举与搜索结果里隐藏；</li>
+<li>隔离会话的上传路由（<code>/v1/isolated/session/:sessionId/files/upload</code>）<strong>不做暂存</strong>，保持原地行为。</li>
+</ul>
+<p><strong>以指定身份执行文件操作</strong>是一个更强的特性：Linux 上，可信后端可以在路径前加 <code>/v1/filesystem/{uid}/{gid}</code>，让操作以该身份执行。每个请求跑在独立 worker 进程里，用选定的凭据；补充组来自选定用户的系统账户（未知数字 UID 没有补充组）；worker <strong>不继承</strong> execd 的补充组，也不继承 execd 的环境。相对路径从 <code>/</code> 解析，<code>~</code> 用选定账户的家目录（未知 UID 用 <code>/</code>）。</p>
+<p>但要看清边界，文档自己写了两条：</p>
+<ol>
+<li>它不提供独立的 mount namespace，<strong>不是租户隔离边界</strong>；</li>
+<li>上传的 <code>owner</code>/<code>group</code>/<code>mode</code> 是目标元数据，不能给 worker 提升权限。</li>
+</ol>
+<p>这个特性解决的是「同一个沙箱里多个会话共用一个工作区」的权限问题：给每个会话分配独立用户与目录，写权限留给属主。文档提醒删除与重命名权限取决于父目录，所以只读文件权限不够。</p>
+<h2 id="隔离会话-bubblewrap-的每执行命名空间">隔离会话：bubblewrap 的每执行命名空间</h2><p>隔离会话在一个 per-execution 的 bubblewrap 命名空间里跑 shell，每次新建：私有挂载视图与身份。显式 bind mount 把宿主路径带进来（只读或读写），写入被限制在允许列表内，并且校验的是<strong>完全解析后的路径</strong>，所以符号链接不能把 bind 重定向到列表之外。会话创建会报告当前环境支持什么，调用方据此调整而不是猜。</p>
+<p>成本数字很清楚：创建一个会话约 100 ms（execd 会短暂等待以检测立即退出的子进程），之后每次 <code>run</code> 复用同一个 bash，开销可忽略。所以它适合「一次 sandbox、多次隔离任务」的场景（RL rollout、批量判题、多工具 Agent），不适合跨语言内核（用 <code>/code</code>）、交互式 REPL（用 <code>/session</code>）、或硬信任边界（用 gVisor/Kata）。</p>
+<p>契约里的 <code>diff</code>/<code>commit</code> 没实现，返回 <code>503</code>，<code>/v1/isolated/capabilities</code> 如实报告 <code>diff_supported: false</code>、<code>commit_supported: false</code>。这是第 3 篇「契约覆盖 ≠ 实现能力」的实例。</p>
+<h2 id="分层防护与-它到底生效了吗">分层防护与「它到底生效了吗」</h2><p>execd 对沙箱里跑的一切做了纵深防御，四层：</p>
+<ol>
+<li><strong>沙箱边界</strong>：资源限制、身份、隔离运行时（runc/gVisor/Kata/Firecracker），在创建时选定；</li>
+<li><strong>加固地板</strong>：运维开启后，每个用户进程经原生 launcher 启动，drop capabilities、设 <code>no_new_privs</code>、装 syscall 拒绝列表、用 Landlock 限制文件系统写；</li>
+<li><strong>隔离会话</strong>：上面的 per-execution 命名空间；</li>
+<li><strong>可选 eBPF 审计</strong>：记录 exec、connect、权限变更，作用域是沙箱自己的 cgroup，作为单独的 <code>execd-ebpf</code> 构建变体发布，不在默认镜像里。</li>
+</ol>
+<p>第四层之外的每一层都会<strong>报告自己的状态</strong>：active、degraded 或 unsupported。这条设计比「我们有四层防护」重要得多——客户端能验证实际生效的是哪几层，而不是假设。</p>
+<p>同时有一条必须说清的边界：<code>execd</code> 的生命周期钩子是平台配置的<strong>可信代码</strong>，在沙箱内运行。文档原话是「它们是便利，不是安全控制」。</p>
+<h2 id="当-init-与-每次分配一个新身份">当 init 与「每次分配一个新身份」</h2><p>execd 可以当沙箱的 init 进程：回收孤儿进程、把信号转发给 entrypoint、把自己的退出码传给运行时，于是 <code>Terminated</code>/<code>Failed</code> 反映的是你的进程真的做了什么，长会话也不会积累僵尸进程。</p>
+<p>更微妙的是<strong>预热复用时的身份问题</strong>。沙箱可以在池里预热并被不同分配复用。execd 让这件事安全：平台在分配时下发一次 per-allocation 绑定（沙箱 ID、环境、访问令牌、生命周期钩子），execd 在 API 开放之前<strong>原子地应用</strong>它。在等待绑定期间（以及启动完成之前），所有业务端点返回 <code>503</code>，只有 <code>/ping</code> 与 <code>/ready</code> 响应。</p>
+<p>这样环境变量、令牌、遥测归属就不会从上一个沙箱泄漏到下一个。这是「预热」这个优化在数据面必须付的代价，也是第 7 篇「池化带来 API 约束」的另一半。</p>
+<h2 id="指标与代理">指标与代理</h2><p>execd 暴露本地 CPU/内存指标：快照（<code>/metrics</code>）与实时流（<code>/metrics/watch</code>）。平台配置了 OTLP 端点时，还导出 OpenTelemetry 指标，并归属到沙箱 ID 与 allocation。</p>
+<p>内置反向代理 <code>/proxy/{port}</code> 是第 6 篇的主角：一个宿主端口触达所有容器端口。它还转发 <code>Upgrade</code>、<code>Connection</code> 等头，所以 HTTP、SSE、WebSocket 共用同一映射。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>execd 是沙箱内执行 API 的参考实现，默认 44772，一个沙箱级令牌保护所有端点（探针除外）。</li>
+<li>命令支持 shell 语法与直接 argv；前台 SSE、后台轮询；行尾保留、成功带 <code>exit_code</code>、断流不等于成功。</li>
+<li>会话合并 stderr、保留空行、超 16 MiB 行切分、bash→sh 回退。</li>
+<li>PTY 是一持有者多观看者，浏览器可用子协议传 base64url 令牌；显式头优先且为空也不回退。</li>
+<li>文件上传先暂存再改名；身份前缀 <code>/v1/filesystem/{uid}/{gid}</code> 提供执行身份，但不是租户边界。</li>
+<li>隔离会话是 per-execution bubblewrap，约 100 ms 创建，diff/commit 未实现。</li>
+<li>防护分层且自报状态；生命周期钩子是可信代码，不是安全控制。</li>
+<li>预热复用靠 per-allocation 绑定保证环境与令牌不泄漏，未绑定前业务端点 503。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>components/execd/pkg/web/controller/command.go</code></td>
+<td>命令执行与 SSE 生命周期</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/model/codeinterpreting.go</code></td>
+<td>事件模型与 <code>ServerStreamEvent</code></td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/filesystem_upload.go</code></td>
+<td>暂存 + rename</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/web/controller/pty_ws.go</code></td>
+<td>PTY 与子协议认证</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/isolation/</code></td>
+<td>bubblewrap 隔离会话</td>
+</tr>
+<tr>
+<td><code>components/execd/pkg/binding/</code></td>
+<td>per-allocation 绑定</td>
+</tr>
+<tr>
+<td><code>docs/architecture/data-plane/execd.md</code></td>
+<td>能力全景与语义权威表述</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="08-fast-sandbox.html"><small>上一篇</small>Fast Sandbox：模板、Fastlet 与 Firecracker</a><a href="10-ingress.html"><small>下一篇</small>入向网络：endpoint 解析、ingress 与 secure access</a></nav></main><script src="../assets/wiki.js"></script></body></html>

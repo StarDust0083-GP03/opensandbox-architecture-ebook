@@ -1,0 +1,214 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>技术方案：一条契约、三种后端、两个平面 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="02-architecture"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#一条契约">一条契约</a></li><li><a href="#三种后端">三种后端</a></li><li><a href="#两个平面">两个平面</a></li><li><a href="#运行时中立-执行具体">运行时中立，执行具体</a></li><li><a href="#六条设计原则">六条设计原则</a></li><li><a href="#仓库地图">仓库地图</a></li><li><a href="#为什么不是别的划法">为什么不是别的划法</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="技术方案-一条契约-三种后端-两个平面">技术方案：一条契约、三种后端、两个平面</h1><p>需求确定之后，方案的第一件事是划分边界。OpenSandbox 的划法可以用一句话概括：<strong>对外一条契约，对内三种后端，横向切两个平面</strong>。这一篇讲这三句话各自意味着什么，以及为什么不是别的划法。</p>
+<h2 id="一条契约">一条契约</h2><p><code>specs/</code> 目录下有四份 OpenAPI 文件，它们是公开契约的唯一来源：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th align="right">大小</th>
+<th>服务的对象</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>sandbox-lifecycle.yml</code></td>
+<td align="right">约 120 KB</td>
+<td>控制面：创建、查询、删除、续期、endpoint、暂停/恢复、快照、模板、网络策略</td>
+</tr>
+<tr>
+<td><code>execd-api.yaml</code></td>
+<td align="right">约 119 KB</td>
+<td>数据面：命令、文件、目录、代码上下文、指标、隔离会话</td>
+</tr>
+<tr>
+<td><code>egress-api.yaml</code></td>
+<td align="right">约 26 KB</td>
+<td>出向策略与凭证保管</td>
+</tr>
+<tr>
+<td><code>diagnostic-api.yml</code></td>
+<td align="right">约 16 KB</td>
+<td>诊断日志/事件描述符</td>
+</tr>
+</tbody></table>
+<p>四条契约分给三类进程：生命周期服务器实现第一、第四条；<code>execd</code> 实现第二条；<code>egress</code> 实现第三条。它们之间没有共享的 RPC，只有 HTTP 和「客户端先解析 endpoint，再直连」的约定。</p>
+<p>这个选择有代价：客户端要理解三个不同的 base URL（默认分别是 8080、44772、18080），还要知道哪些操作在控制面、哪些在数据面。收益是边界非常硬——控制面的故障不会让正在运行的命令中断，反过来也一样。第 17 篇会把这条边界当作可用性讨论的基础。</p>
+<h2 id="三种后端">三种后端</h2><p><code>runtime.type</code> 只有两个合法值：<code>docker</code> 和 <code>kubernetes</code>。第三种后端 Fast Sandbox 不是新的 <code>runtime.type</code>，而是 Kubernetes 模式下的一个组合分支。</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">runtime.type = &quot;docker&quot;
+  └── DockerSandboxService         直接操作 Docker daemon
+
+runtime.type = &quot;kubernetes&quot;
+  └── CompositeSandboxService
+        ├── KubernetesSandboxService   容器负载：BatchSandbox 或 agent-sandbox
+        └── FastSandboxService         模板负载：microVM，经 FastPath 控制</code></pre></div><p>路由规则写在 <code>composite_service.py</code> 里，短到可以整段引用：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_backend</span>(<span class="hljs-params">self, sandbox_id: <span class="hljs-built_in">str</span></span>) -&gt; KubernetesSandboxService | FastSandboxService:
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">self</span>._fsb <span class="hljs-keyword">if</span> sandbox_id.startswith(<span class="hljs-string">&quot;fsb-&quot;</span>) <span class="hljs-keyword">else</span> <span class="hljs-variable language_">self</span>._kubernetes
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">create_sandbox</span>(<span class="hljs-params">self, request: CreateSandboxRequest</span>) -&gt; CreateSandboxResponse:
+    <span class="hljs-keyword">if</span> (request.template_id <span class="hljs-keyword">or</span> <span class="hljs-string">&quot;&quot;</span>).strip():
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._fsb.create_sandbox(request)
+    <span class="hljs-keyword">if</span> (request.snapshot_id <span class="hljs-keyword">or</span> <span class="hljs-string">&quot;&quot;</span>).strip() <span class="hljs-keyword">and</span> request.resolved_snapshot_backend == <span class="hljs-string">&quot;fsb&quot;</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._fsb.create_sandbox(request)
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> <span class="hljs-variable language_">self</span>._kubernetes.create_sandbox(request)</code></pre></div><p>创建时看请求（有 <code>templateId</code> 走模板），之后看 ID 前缀（<code>fsb-</code> 走模板）。<strong>没有注册表，没有额外的数据库表</strong>，前缀就是分发器。这个做法在第 8 篇还会再讨论一次，因为它同时是这套设计最省事和最脆的地方。</p>
+<h2 id="两个平面">两个平面</h2><p>架构文档把交互路径分成三条：生命周期管理（橙）、执行与服务访问（蓝）、出向控制（绿）。落到进程上就是两个平面：</p>
+<p><strong>控制面</strong>只做四件事：认证、校验、持久化自己拥有的记录、把动作委派给运行时。</p>
+<p><strong>数据面</strong>做剩下的全部：命令执行、文件读写、PTY、Jupyter、指标，以及出向流量的 DNS 与包过滤。</p>
+<p>中间那条线可以写成一条规则：<strong>控制面不碰沙箱内部，数据面不碰沙箱的帐</strong>。</p>
+<p>这条规则解释了三个容易困惑的现象：</p>
+<ul>
+<li>为什么服务器不保存沙箱列表？因为容器、Pod、CR 才是事实来源（<code>docs/architecture/control-plane/server.md</code> 的原话是「Sandboxes are not rows in the server&#39;s database」）。</li>
+<li>为什么服务器要用代理转发流量？那不是主路径，是当直连和网关都不通时的兼容退路。</li>
+<li>为什么 <code>execd</code> 需要自己的令牌？因为控制面的 API key 只授权「管理沙箱」，不授权「进入沙箱」。</li>
+</ul>
+<h2 id="运行时中立-执行具体">运行时中立，执行具体</h2><p>生命周期 API 里全是跨运行时的概念：<code>resourceLimits</code>、<code>volumes</code>、<code>networkPolicy</code>、<code>platform</code>、<code>secureAccess</code>、<code>metadata</code>、<code>extensions</code>。不同后端把它们翻译成不同的东西：</p>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>Docker</th>
+<th>Kubernetes 容器</th>
+<th>Fast Sandbox</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>算力单位</td>
+<td>容器</td>
+<td>Pod</td>
+<td>microVM</td>
+</tr>
+<tr>
+<td>卷</td>
+<td>绑定挂载 / 命名卷</td>
+<td>PVC / hostPath</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>出向策略</td>
+<td>每沙箱 sidecar</td>
+<td>Pod 内 sidecar</td>
+<td>每 Fastlet 一个共享进程</td>
+</tr>
+<tr>
+<td>暂停</td>
+<td>容器 pause</td>
+<td>提交 rootfs 镜像并重建</td>
+<td>检查点 + 释放 Fastlet</td>
+</tr>
+<tr>
+<td>endpoint</td>
+<td>宿主端口 + <code>/proxy/</code></td>
+<td>ingress 头路由</td>
+<td>签名路由 scope</td>
+</tr>
+</tbody></table>
+<p>这张表的每一行都在文档里能查到。它同时说明了一件事：<strong>「中立」只到 API 形状为止</strong>。同一个 <code>networkPolicy</code> 字段，在三种后端上能做的事情并不一样，所以第 3 篇要讲「契约里有一条操作，不等于每个后端都支持它」。</p>
+<h2 id="六条设计原则">六条设计原则</h2><p>上游在架构文档末尾列了设计原则，我认为其中四条真正约束了代码形状，值得逐条落到代码上：</p>
+<p><strong>Protocol First。</strong> 公开行为从 <code>specs/</code> 开始。这条原则最直接的体现是：服务器代码里的 <code>API_CONTRACT_VERSION</code> 与 <code>specs/sandbox-lifecycle.yml</code> 的 <code>info.version</code> 对齐，而包版本另走 <code>GET /version</code>。契约版本和发布版本是两个东西。</p>
+<p><strong>Control Plane vs Data Plane。</strong> 上面已讲。</p>
+<p><strong>Secure Defaults with Explicit Escape Hatches。</strong> 默认要有 API key；非交互环境下没 key 直接拒绝启动，除非显式设置 <code>OPENSANDBOX_INSECURE_SERVER=YES</code>。多租户开启时，启动阶段就要校验所有租户命名空间可达，否则不接流量。这条「启动即失败」比「请求时失败」强的理由是：隔离配置错了，单看某个请求是看不出来的。</p>
+<p><strong>Observable Failures。</strong> 沙箱状态不只有 <code>state</code>，还有 <code>reason</code>、<code>message</code> 和状态迁移时间。<code>execd</code> 有 metrics，服务器有 diagnostics，ingress/egress 有连接分类与拒绝计数。第 16 篇会讲这套可观测性的形状。</p>
+<h2 id="仓库地图">仓库地图</h2><p>读代码前先看清目录职责，能省很多时间：</p>
+<table>
+<thead>
+<tr>
+<th>目录</th>
+<th>职责</th>
+<th>语言</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/</code></td>
+<td>生命周期控制面（FastAPI）</td>
+<td>Python</td>
+</tr>
+<tr>
+<td><code>components/execd/</code></td>
+<td>沙箱内执行守护进程</td>
+<td>Go</td>
+</tr>
+<tr>
+<td><code>components/egress/</code></td>
+<td>出向策略、凭证代理、nftables</td>
+<td>Go + Python（mitmproxy 插件）</td>
+</tr>
+<tr>
+<td><code>components/ingress/</code></td>
+<td>Kubernetes 入向反向代理</td>
+<td>Go</td>
+</tr>
+<tr>
+<td><code>components/nodeagent/</code></td>
+<td>节点级日志/系统调用采集</td>
+<td>Go</td>
+</tr>
+<tr>
+<td><code>kubernetes/</code></td>
+<td>CRD 与三个 reconciler</td>
+<td>Go</td>
+</tr>
+<tr>
+<td><code>sdks/sandbox/*</code></td>
+<td>五种语言的沙箱 SDK</td>
+<td>Py/TS/Kotlin/Go/C#</td>
+</tr>
+<tr>
+<td><code>sdks/code-interpreter/*</code></td>
+<td>代码解释器 SDK</td>
+<td>Py/TS/Kotlin</td>
+</tr>
+<tr>
+<td><code>cli/</code></td>
+<td><code>osb</code> 命令行</td>
+<td>Python</td>
+</tr>
+<tr>
+<td><code>manifests/charts/</code></td>
+<td>Helm chart（base/controller/server/…）</td>
+<td>YAML</td>
+</tr>
+<tr>
+<td><code>specs/</code></td>
+<td>OpenAPI 契约</td>
+<td>YAML</td>
+</tr>
+</tbody></table>
+<p>按代码量粗看（<code>go/py/ts/java/cs</code> 计）：<code>sdks/sandbox</code> 约 20 万行，<code>server</code> 约 8.4 万行，<code>components/egress</code> 约 9.6 万行，<code>components/execd</code> 约 6.3 万行，<code>kubernetes</code> 是中等规模但密度最高的一块。SDK 体量大是因为五种语言各自生成加手写适配，不是因为逻辑复杂。</p>
+<h2 id="为什么不是别的划法">为什么不是别的划法</h2><p>有三个看起来更简单的方案，值得说明它们为什么不在这里：</p>
+<p><strong>方案 A：把执行 API 合进生命周期服务器。</strong> 这样只有一个 base URL，客户端最简单。代价是命令的 SSE 流会穿过控制面，控制面升级或重启就会打断正在跑的任务；而且所有沙箱的命令流量都要过服务器，带宽和连接数都成了控制面的问题。上游选了分离，把「流」留在数据面。</p>
+<p><strong>方案 B：把三种后端做成三个独立产品。</strong> 这样每套可以按自己的语义优化。代价是 SDK 要写三份，用户体验碎片化，而且「本地 Docker 起步、上线换 K8s」这条最常见的迁移路径会失效。上游选一个接口 + 组合路由，代价是必须接受「某些功能只有某些后端支持」。</p>
+<p><strong>方案 C：用 Kubernetes 一种后端覆盖全部。</strong> 这样可以少维护一套 Docker 实现。代价是本地开发必须装集群，而 README 的第一句引导就是 <code>uvx opensandbox-server</code> + Docker。上游保留 Docker 作为一等公民。</p>
+<p>三个方案都不是错的，只是各自把复杂度放在了不同地方。OpenSandbox 把复杂度放在了「运行时适配层」和「文档里的兼容性边界」上——这是最不影响调用方、但最考验维护者的位置。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>四份 OpenAPI 契约分给三类进程，控制面与数据面之间没有 RPC。</li>
+<li><code>runtime.type</code> 只有 <code>docker</code> 与 <code>kubernetes</code>；模板沙箱是 Kubernetes 模式下的组合分支，用 <code>fsb-</code> 前缀分发。</li>
+<li>控制面不碰沙箱内部，数据面不碰帐；因此服务器不保存沙箱列表。</li>
+<li>运行时中立只到 API 形状，能力差异必须显式声明。</li>
+<li>三条被放弃的替代方案，各自把复杂度放在了别处。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>docs/architecture/index.md</code></td>
+<td>六个 surface、三条交互路径、五条核心流程</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/factory.py</code></td>
+<td>配置到实现的映射，共 40 行</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/composite_service.py</code></td>
+<td><code>fsb-</code> 前缀路由与创建分流</td>
+</tr>
+<tr>
+<td><code>specs/</code></td>
+<td>四份契约的实际大小与 <code>info.version</code></td>
+</tr>
+<tr>
+<td><code>manifests/charts/opensandbox/</code></td>
+<td>umbrella chart 如何把组件组合起来</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="01-requirements.html"><small>上一篇</small>需求篇：Agent 执行环境要满足什么</a><a href="03-contracts.html"><small>下一篇</small>契约层：四份 OpenAPI 与它们没写的东西</a></nav></main><script src="../assets/wiki.js"></script></body></html>

@@ -1,0 +1,120 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="基于 OpenSandbox 源码与官方文档编写的中文架构电子书"><title>控制平面：一台 FastAPI 服务器的四条不变量 · OpenSandbox 架构解剖</title><link rel="stylesheet" href="../assets/wiki.css"></head><body><a class="skip" href="#main">跳到正文</a><header class="topbar"><a class="brand" href="../index.html">OpenSandbox 架构解剖</a><span class="spacer"></span><a class="control" href="../search.html">搜索</a><button class="control" data-size="-1" aria-label="减小字号">A−</button><button class="control" data-size="1" aria-label="增大字号">A＋</button></header><main id="main" class="book" data-chapter="04-lifecycle-server"><details class="toc"><summary>本篇目录</summary><ol><li><a href="#分层与它的规则">分层与它的规则</a></li><li><a href="#不变量一-api-层不直接碰运行时">不变量一：API 层不直接碰运行时</a></li><li><a href="#不变量二-沙箱不是数据库里的一行">不变量二：沙箱不是数据库里的一行</a></li><li><a href="#不变量三-失败要发生在启动-不是请求">不变量三：失败要发生在启动，不是请求</a></li><li><a href="#不变量四-状态机只在这里定义">不变量四：状态机只在这里定义</a></li><li><a href="#校验放在哪里">校验放在哪里</a></li><li><a href="#代理层-不是主路径-但要正确">代理层：不是主路径，但要正确</a></li><li><a href="#单活-双活与它们之间的窄门">单活、双活与它们之间的窄门</a></li><li><a href="#一个请求在控制面里的完整路径">一个请求在控制面里的完整路径</a></li><li><a href="#本章要点">本章要点</a></li><li><a href="#本章源码入口">本章源码入口</a></li></ol></details><article class="content"><h1 id="控制平面-一台-fastapi-服务器的四条不变量">控制平面：一台 FastAPI 服务器的四条不变量</h1><p><code>server/</code> 里约 8.4 万行 Python，但真正定义它的只有四条不变量。后面所有代码都是在守住这四条。</p>
+<h2 id="分层与它的规则">分层与它的规则</h2><p>目录结构很规整：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">server/opensandbox_server/
+  main.py          启动、中间件、路由注册、运行时校验
+  api/             路由与 schema（lifecycle 618 行、proxy 776 行、schema 1817 行）
+  middleware/      auth、request_id、date_header、http_metrics
+  services/        生命周期状态机与运行时集成（docker/、k8s/、fast_sandbox/）
+  repositories/    只持久化服务器自己拥有的记录（snapshots/、templates/）
+  tenants/         身份提供方：从 API key 解析出租户
+  integrations/    renew_intent、idle_pause、otel</code></pre></div><p>架构文档把规则写成两条，我认为可以拆成四条更可检查的不变量。</p>
+<h2 id="不变量一-api-层不直接碰运行时">不变量一：API 层不直接碰运行时</h2><p>所有路由都只调用 <code>SandboxService</code> 接口。<code>api/lifecycle.py</code> 的创建路由一共不到 30 行有效逻辑：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs"><span class="hljs-keyword">async</span> <span class="hljs-keyword">def</span> <span class="hljs-title function_">create_sandbox</span>(<span class="hljs-params">request: CreateSandboxRequest, x_request_id: ... </span>) -&gt; CreateSandboxResponse:
+    validate_extensions(request.extensions)
+    validate_renew_policy_conflict(request.lifecycle, request.extensions)
+    normalize_network_policy_actions(request.network_policy)
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> (request.template_id <span class="hljs-keyword">or</span> <span class="hljs-string">&quot;&quot;</span>).strip():
+        request = <span class="hljs-keyword">await</span> resolve_sandbox_image_from_request(request)
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> sandbox_service.create_sandbox(request)</code></pre></div><p>四步校验加一次委派。没有 <code>if runtime == &quot;docker&quot;</code>，没有 Docker 客户端对象，也没有 Kubernetes API 调用。</p>
+<p>这条不变量的收益不只是「可替换后端」。它让 API 层变成了一个纯函数式的边界：给定请求，产出一组校验结果和一次服务调用。测试可以只 mock 服务接口，不需要 Docker daemon。</p>
+<p><strong>代价</strong>是抽象必须足够通用。<code>extensions</code> 之所以是 <code>map&lt;string,string&gt;</code>，一部分原因就在这里：如果每个后端都要在自己的字段上做定制，接口就抽象不住了。</p>
+<h2 id="不变量二-沙箱不是数据库里的一行">不变量二：沙箱不是数据库里的一行</h2><p>服务器只持久化两类东西：</p>
+<ul>
+<li><strong>快照元数据</strong>（<code>repositories/snapshots/</code>）</li>
+<li><strong>模板目录</strong>（<code>repositories/templates/</code>）</li>
+</ul>
+<p>沙箱本身不在库里。Docker 容器、Kubernetes 的 <code>BatchSandbox</code>/<code>Pool</code>、<code>sandbox.fast.io</code> 的 CR 才是事实来源。服务器每次读沙箱，都是去问运行时。</p>
+<p>这个决定的直接后果是「服务器的存储后端可以随时换」：SQLite（默认 <code>~/.opensandbox/opensandbox.db</code>）或 PostgreSQL，通过 <code>[store]</code> 切换。反过来说，如果沙箱是数据库行，换存储就等于数据迁移，而数据迁移必然带来停机窗口。</p>
+<p>后果之二是<strong>重启后的行为</strong>。服务器重启时不需要恢复沙箱列表，只需要恢复两类附加状态：</p>
+<ul>
+<li>Docker 后端的过期定时器（从容器标签里读回创建时间，重建 timer）；</li>
+<li>暂停/恢复中的状态（<code>~/.opensandbox/metadata/_transition/</code> 下记录主容器状态与时间戳）。</li>
+</ul>
+<p><code>createdAt</code> 的处理很讲究：创建响应里的 <code>createdAt</code> 会写进容器标签 <code>opensandbox.io/created-at</code>，后续读取复用它；老容器没有这个标签，就退回 Docker 的创建时间。这是「事实来源在运行时，但服务器要保证语义一致」的典型手法。</p>
+<h2 id="不变量三-失败要发生在启动-不是请求">不变量三：失败要发生在启动，不是请求</h2><p><code>main.py</code> 的 lifespan 里有一串会直接 <code>os._exit(1)</code> 的检查：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">api_key_confirm(...)                    没配 API key → 交互式输入 YES 或环境变量 YES，否则退出
+validate_tenant_config(...)             租户配置不合法 → 退出
+validate_tenant_namespaces_on_startup   多租户命名空间不可达 → 退出
+validate_secure_runtime_on_startup      声明的安全运行时不可用 → 退出</code></pre></div><p><code>startup_guard.py</code> 里的 <code>api_key_confirm</code> 是这个思路最清楚的一个实现：它不只看「有没有 key」，还区分场景——有 TTY 时需要人工输入 <code>YES</code>（30 秒超时），没有 TTY 时要求 <code>OPENSANDBOX_INSECURE_SERVER=YES</code> 显式承认。</p>
+<p>架构文档给的理由是：<strong>隔离配错时，单个请求看不出来。</strong> 少一个 API key，每个请求都会成功，直到某个租户读到别人的东西。这种错误必须在启动时炸掉。</p>
+<p>这条不变量的实现方式值得抄：把「不安全配置」写成一组启动期断言，每个断言都有一个明确的环境变量开关。这样运维能看到全部开关，而不是散落在代码里的 if。</p>
+<h2 id="不变量四-状态机只在这里定义">不变量四：状态机只在这里定义</h2><p><code>resume()</code> 是暂停态操作，不是通用重启——这句话在 <code>server.md</code> 里写得很直接：已经退出的沙箱是 <code>Terminated</code> 或 <code>Failed</code>，诚实的答案是换一个新的，而不是悄悄复活。</p>
+<p>于是状态迁移被限制成两条主路径：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">创建：  Pending → Running
+暂停：  Running → Pausing → Paused → Resuming → Running
+结束：  Running → Stopping → Terminated
+异常：  任意 → Failed（带 reason/message）</code></pre></div><p><code>SandboxStatus</code> 只有 <code>state</code>、<code>reason</code>、<code>message</code>、<code>lastTransitionAt</code>。文档特别提了一句实现细节：服务器管理的暂停/恢复转换会把主容器状态与时间戳写到 <code>~/.opensandbox/metadata/_transition/</code>，重启后如果记录里的状态与观测到的容器状态一致才采用这个时间戳；不一致就丢弃。这是「持久化的是推导结果，采用前必须验证」的做法。</p>
+<h2 id="校验放在哪里">校验放在哪里</h2><p><code>services/validators.py</code> 有 723 行，比很多后端服务都长。校验被集中在一处，而不是散在路由和后端里，理由有三条：</p>
+<ol>
+<li>同一个字段在不同后端要校验的规则不同（例如 <code>networkPolicy</code> 与 <code>poolRef</code> 不能同时出现），集中才看得全；</li>
+<li>校验顺序本身是语义（先查 extensions 冲突，再解析镜像），集中才能固定顺序；</li>
+<li>SDK 不强制某些上限（例如 lifecycle 钩子的 <code>timeoutSeconds</code> 范围），服务器是最终权威——文档原话是「Server is the authority for request validation」。</li>
+</ol>
+<h2 id="代理层-不是主路径-但要正确">代理层：不是主路径，但要正确</h2><p><code>api/proxy.py</code> 有 776 行，是 api 目录里最大的一块。它实现的 <code>GET /sandboxes/{id}/proxy/{port}</code> 是当「直连」和「网关」都不可用时的兼容退路。</p>
+<p>代理层的正确性要求比想象中高，因为流量里可能带着凭据。文档列出几条具体规则：</p>
+<ul>
+<li>去掉逐跳头（hop-by-hop）和后端的 <code>Server</code> 头；</li>
+<li>保留后端的 <code>Date</code>，没有才补当前时间；</li>
+<li>只把以单个 <code>/</code> 开头的 <code>Location</code> 重写到同一沙箱的代理路由下，绝对 URL、<code>//host/path</code> 和普通相对路径原样转发；</li>
+<li>HTTP 与 WebSocket 都支持；</li>
+<li>响应声明为 <code>200</code> + <code>default</code>，因为 payload 由沙箱里的服务决定。</li>
+</ul>
+<p>第三、四条合起来说明一个判断：<strong>代理不能自作聪明</strong>。跟随重定向、改写绝对地址、重新编码响应体，都会把「代理」变成「会改语义的中间件」，一旦出错就很难定位。宁可少做一点。</p>
+<h2 id="单活-双活与它们之间的窄门">单活、双活与它们之间的窄门</h2><p>服务器的默认部署是<strong>单活</strong>：一个副本、SQLite、升级时短暂中断。文档对这个边界的表述非常克制。</p>
+<p>PostgreSQL 打开的不是「水平扩展的 API」，而是一个很窄的能力：<strong>两个副本协调公开快照创建</strong>。实现上没有用 lease 或 leader election，而是利用两个已有不变量：</p>
+<ol>
+<li><strong>先观察再创建</strong>：<code>SandboxSnapshot</code> 的 CR 名是确定性的，副本先查再建，撞上 <code>409 AlreadyExists</code> 当作成功；</li>
+<li><strong>终态写入用 CAS</strong>：数据库终态写入以期望的前一状态为条件，两个副本同时完成时一个赢、另一个空操作；</li>
+<li><strong>恢复扫描</strong>：崩溃副本留下非终态行，存活副本定期重扫，通过同一套 CR 观察推进。</li>
+</ol>
+<p>文档明确声明「不声称跨数据库、Kubernetes 与镜像仓库的 exactly-once」，恢复间隔决定的是接管延迟，不是原子性。这段描述的价值在于它承认了什么没做到——第 17 篇会把它和「系统级 HA 仍在 ROADMAP」放在一起看。</p>
+<h2 id="一个请求在控制面里的完整路径">一个请求在控制面里的完整路径</h2><p>把上面的拼起来，<code>POST /v1/sandboxes</code> 的路径是：</p>
+<div class="table-wrap"><pre tabindex="0"><code class="hljs">HTTP 请求
+  → RequestIdMiddleware       生成/透传 request id
+  → AuthMiddleware            校验 OPEN-SANDBOX-API-KEY，解析租户
+  → 路由 api.lifecycle.create_sandbox
+      校验 extensions / renewal 冲突 / networkPolicy 归一化
+      解析 snapshotId（决定走 pod 还是 fsb）
+  → sandbox_service.create_sandbox
+      Docker / Kubernetes / Composite → 具体后端
+  → 返回 CreateSandboxResponse（Pending）</code></pre></div><p>同步返回 <code>Pending</code> 是关键：从这一刻起，客户端拿到的唯一事实来源是 <code>GET /v1/sandboxes/{id}</code>。控制面不再持有这个请求的任何状态，也不会因为后续的 Pod 调度失败而「记住」什么——失败写在沙箱对象的状态里。</p>
+<h2 id="本章要点">本章要点</h2><ul>
+<li>四条不变量：API 不碰运行时、沙箱不在库里、不安全配置启动即失败、状态机只在控制面定义。</li>
+<li>服务器只持久化快照元数据与模板目录，因此存储后端可换。</li>
+<li>校验集中在 <code>validators.py</code>，服务器是最终权威。</li>
+<li>代理层刻意少做事：不改写绝对地址、不跟随重定向。</li>
+<li>默认单活；PostgreSQL 只支撑「两个副本协调快照创建」这一窄场景，文档不夸大它。</li>
+</ul>
+<h2 id="本章源码入口">本章源码入口</h2><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>server/opensandbox_server/main.py</code></td>
+<td>lifespan 里的启动期断言与路由注册</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/startup_guard.py</code></td>
+<td>无 API key 时的确认策略</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/lifecycle.py</code></td>
+<td>创建路由的校验顺序</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/services/validators.py</code></td>
+<td>全部请求侧规则</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/api/proxy.py</code></td>
+<td>头处理、<code>Location</code> 重写、WebSocket</td>
+</tr>
+<tr>
+<td><code>server/opensandbox_server/repositories/</code></td>
+<td>SQLite/PostgreSQL 两套适配</td>
+</tr>
+</tbody></table>
+</article><nav class="pager" aria-label="篇章导航"><a href="03-contracts.html"><small>上一篇</small>契约层：四份 OpenAPI 与它们没写的东西</a><a href="05-runtime-routing.html"><small>下一篇</small>运行时路由：一个接口装下三种后端</a></nav></main><script src="../assets/wiki.js"></script></body></html>
