@@ -20,6 +20,41 @@
 - 单文件 `wiki/book.html`：23 个章节区块、外部脚本数量为 0、内联搜索「nftables」命中 10 章。
 - 未观察到页面脚本错误。
 
+## 图表检查
+
+三张图都是矢量图：整体架构为手写 SVG，时序图与状态机为 Mermaid（`book/diagrams/*.mmd`）渲染的 SVG。构建时进入站点（`<img>`）、单文件（内联 SVG）与 EPUB（独立 SVG 资源 + manifest）。
+
+| 图 | 画布 | 节点 | 文本 | 几何问题 |
+|---|---|---:|---:|---:|
+| `architecture.svg` | 1040×908 | 17 | 68 | 0 |
+| `request-flow.svg` | 784×1088 | 0（时序） | 32 | 0 |
+| `lifecycle.svg` | 703×791 | 8 | 21 | 0 |
+
+检查脚本 `book/diagrams/checks/geometry.js`，把 SVG 内联进空白页后用 `getBoundingClientRect()`（含 transform）逐元素断言：
+
+- 每个 `<text>` 的屏幕矩形都落在画布内 → 无裁切；
+- 每个节点内的文字落在自己的矩形内 → 无 `label-outside-node`；
+- 节点矩形两两不重叠；
+- Mermaid 边标签不压住节点；
+- 时序图退化检查：文字两两重叠面积不超过较小者的 25%。
+
+修复记录（由检查发现）：
+
+1. 第一版架构图用 ASCII 伪图，已废弃；改为 SVG。
+2. Mermaid 架构图初版渲染成 526×2178（`direction` 在跨子图连线下被忽略），改为手写 SVG 精确布局。
+3. 时序图初版 1348 宽，且有 3 处压字：`autonumber` 序号压在消息文字上（74% 面积）、参与者名「生命周期服务器」折行导致两行文字重叠。处理：去掉 `autonumber`、参与者改「控制面」、收窄到 784 宽。
+4. 图片曾用 `loading="lazy"`，导致首屏外图不适配宽度、布局跳动；改为输出 `width`/`height` 属性。
+5. EPUB 的 `book.css` 原先没有 `img` 规则，1040px 宽的图会溢出页面；补 `img{max-width:100%;height:auto}`。
+6. 站点的图在深色模式下会露出深色 padding，改为图版固定纸色（图只有浅色版）。
+
+页面级检查（重建后）：
+
+- 桌面 780px 内容宽度：三张图均加载成功（`complete` 且 `naturalWidth>0`），宽高比与 viewBox 一致（780×684 / 780×1074 / 780×875）。
+- 375px 视口（iframe 模拟，媒体查询生效）：页面横向溢出为 0；图在 `figure` 内横向滚动，`img` 最小 640px，正文不被挤压。
+- EPUB：三个 SVG 作为独立资源打包，`02-architecture.xhtml` / `13-lifecycle-state.xhtml` 的 `<img src>` 指向它们，`verify.py` 的资源可达性检查通过。
+
+**没做到的**：本轮会话里没有可用的人眼或视觉模型复核（图片输入不被当前模型支持，可用的 classifier 也拒绝图像输入）。因此上述是几何与结构检查，不等于「好看」。`book/diagrams/preview/*.png` 是从渲染页截的图，供人工过目；发现观感问题可直接改 `book/diagrams/` 下的源文件重渲染。
+
 ## 未做与不能推出的结论
 
 - **没有部署或运行 OpenSandbox。** 没有起服务器、没有创建真实沙箱、没有跑上游 e2e。

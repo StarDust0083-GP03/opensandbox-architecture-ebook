@@ -29,6 +29,8 @@
 | 限制 | 无特殊限制 | `replicas=1` | 无特殊限制 |
 | 算力足迹 | 保留（进程被冻结） | 释放 | 释放 |
 
+{{diagram:lifecycle|图 3：沙箱生命周期状态机。粗体关注两条边：`Pausing → Paused` 必须等快照可用，`Resuming → Running` 保证 sandboxId 不变但地址可能变。`Failed` 是终态——文档的选择是换新沙箱，而不是悄悄复活。}}
+
 这张表说明「暂停」在三种后端上不是同一件事。Docker 的 pause 只是冻结，不省内存；Kubernetes 与 Fast Sandbox 才是真的把算力还回去。
 
 第二行的顺序值得再提一次：暂停先冻结主容器、再冻结 sidecar；恢复先解 sidecar、再解主容器。因为主容器一解冻就会发网络请求，此时 egress 必须已经在工作。

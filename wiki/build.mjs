@@ -8,11 +8,15 @@ const root=resolve(import.meta.dirname,'..');
 const out=join(root,'wiki');
 const book=join(root,'book');
 const chapterDir=join(book,'chapters');
+const diagramDir=join(book,'diagrams');
 const title='OpenSandbox 架构解剖';
 const subtitle='从一次创建请求到沙箱里的进程';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const slug=s=>String(s).toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu,'-').replace(/^-|-$/g,'');
 mkdirSync(join(out,'chapters'),{recursive:true});
+mkdirSync(join(out,'assets','diagrams'),{recursive:true});
+const diagramFiles=readdirSync(diagramDir).filter(f=>f.endsWith('.svg'));
+for(const f of diagramFiles) copyFileSync(join(diagramDir,f),join(out,'assets','diagrams',f));
 
 // 附录 C 由 examples/ 同步生成，避免代码与书稿各写一份。
 const codeFiles=['mini_osb.py','test_mini_osb.py'];
@@ -32,7 +36,23 @@ marked.use({gfm:true,renderer:{
  code({text,lang}){const language=(lang||'').split(/\s/)[0];return `<div class="table-wrap"><pre tabindex="0"><code class="hljs">${hljs.getLanguage(language)?hljs.highlight(text,{language}).value:esc(text)}</code></pre></div>`;}
 }});
 
+function diagramFigure(name,caption,mode){
+ if(mode==='single'){
+  const raw=readFileSync(join(diagramDir,name+'.svg'),'utf8')
+   .replace(/<\?xml[^>]*\?>/,'')
+   .replace(/id="([^"]+)"/g,(m,id)=>`id="${name}-${id}"`)
+   .replace(/url\(#([^)]+)\)/g,(m,id)=>`url(#${name}-${id})`)
+   .replace(/<svg /,'<svg class="diagram-svg" preserveAspectRatio="xMidYMid meet" ');
+  return `<figure class="diagram">${raw}<figcaption>${esc(caption)}</figcaption></figure>`;
+ }
+ const raw=readFileSync(join(diagramDir,name+'.svg'),'utf8');
+ const vb=(raw.match(/viewBox="([^"]+)"/)||[,'0 0 1000 700'])[1].trim().split(/[\s,]+/).map(Number);
+ const w=Math.round(vb[2]), h=Math.round(vb[3]);
+ return `<figure class="diagram"><img src="../assets/diagrams/${name}.svg" alt="${esc(caption)}" width="${w}" height="${h}"><figcaption>${esc(caption)}</figcaption></figure>`;
+}
+
 function convert(md,mode){
+ md=md.replace(/\{\{diagram:([a-z0-9-]+)\|([^}]*)\}\}/g,(_m,name,caption)=>diagramFigure(name,caption,mode));
  md=md.replace(/\]\(([^)]+)\.md(#[^)]*)?\)/g,(match,p,hash='')=>/^[a-z]+:\/\//i.test(p)?match:`](${mode==='single'?'#'+p.split('/').pop():p+'.html'+hash})`);
  let result=marked.parse(md);
  if(mode==='single'){

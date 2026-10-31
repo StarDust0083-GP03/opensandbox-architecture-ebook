@@ -1,0 +1,30 @@
+%% 一次创建请求的时序（第 02 篇）
+%%{init: {"sequence": {"width": 110, "actorMargin": 26, "messageMargin": 20, "wrap": true}}}%%
+%% 渲染：mmdc -i request-flow.mmd -o request-flow.svg -c mermaid.json -p puppeteer.json
+sequenceDiagram
+  participant C as 客户端
+  participant S as 控制面
+  participant R as 运行时后端
+  participant E as execd
+  participant G as egress
+
+  C->>S: POST /v1/sandboxes
+  S->>S: 认证 → 校验 → 委派
+  S->>R: 创建或认领工作负载
+  alt 池有空闲槽位
+    R-->>S: 分配完成（常数时间）
+  else 池容量耗尽
+    R-->>S: 分配待定
+    S-->>C: 429（可重试）
+  end
+  R->>E: 启动 + 下发绑定
+  R->>G: 安装 deny-first 规则
+  S-->>C: Pending
+  C->>S: GET /sandboxes/{id}
+  S-->>C: Running
+  C->>S: GET /endpoints/44772
+  S-->>C: 地址 + 请求头
+  C->>E: POST /command
+  E-->>C: SSE 事件流
+  C->>S: DELETE /sandboxes/{id}
+  S-->>C: 204（异步清理）

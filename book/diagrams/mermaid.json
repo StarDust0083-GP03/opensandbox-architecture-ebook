@@ -1,0 +1,45 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "\"Noto Sans CJK SC\", ui-sans-serif, system-ui, sans-serif",
+    "fontSize": "15px",
+    "primaryColor": "#f0ece2",
+    "primaryTextColor": "#252820",
+    "primaryBorderColor": "#b9b09b",
+    "lineColor": "#29564c",
+    "secondaryColor": "#faf7ef",
+    "tertiaryColor": "#f2ecdf",
+    "background": "#faf7ef",
+    "noteBkgColor": "#f2ecdf",
+    "noteTextColor": "#3a3d34",
+    "noteBorderColor": "#d9d2c3",
+    "actorBkg": "#f0ece2",
+    "actorBorder": "#b9b09b",
+    "actorTextColor": "#252820",
+    "signalColor": "#29564c",
+    "signalTextColor": "#252820",
+    "labelBoxBkgColor": "#f2ecdf",
+    "labelBoxBorderColor": "#d9d2c3",
+    "labelTextColor": "#252820",
+    "clusterBkg": "#f7f3e9",
+    "clusterBorder": "#d9d2c3",
+    "edgeLabelBackground": "#faf7ef"
+  },
+  "flowchart": {
+    "curve": "basis",
+    "htmlLabels": false,
+    "nodeSpacing": 38,
+    "rankSpacing": 44,
+    "padding": 10
+  },
+  "sequence": {
+    "useMaxWidth": true,
+    "wrap": true,
+    "width": 200,
+    "actorMargin": 60
+  },
+  "state": {
+    "useMaxWidth": true
+  },
+  "htmlLabels": false
+}

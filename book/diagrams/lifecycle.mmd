@@ -1,0 +1,17 @@
+%% 沙箱生命周期状态机（第 13 篇）
+stateDiagram-v2
+  direction TB
+  [*] --> Pending: POST /sandboxes
+  Pending --> Running: 工作负载就绪
+  Pending --> Failed: 调度或拉镜像失败
+  Running --> Pausing: pause（202，异步）
+  Pausing --> Paused: 快照成功 + 释放算力
+  Pausing --> Failed: PauseFailed（快照不可用）
+  Paused --> Resuming: resume
+  Resuming --> Running: 同一个 sandboxId
+  Resuming --> Failed: 检查点缺失或围栏不匹配
+  Running --> Stopping: DELETE
+  Stopping --> Terminated: 清理完成
+  Stopping --> Failed: 非零退出
+  Terminated --> [*]
+  Failed --> [*]: 换新沙箱，不复活

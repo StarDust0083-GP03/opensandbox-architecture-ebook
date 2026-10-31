@@ -135,3 +135,16 @@
   @media(prefers-reduced-motion:reduce) {html{scroll-behavior:auto}.chapter-row,.control{transition:none}}
 }
 @media print {.reader-mobile-toc,.reader-book-toc,[data-reader-theme],.copy{display:none!important}}
+
+/* diagrams */
+.diagram{margin:2.2em 0;padding:0;overflow-x:auto;overscroll-behavior-inline:contain}
+.diagram img,.diagram .diagram-svg{display:block;width:100%;height:auto;max-width:100%;background:#faf7ef;border:1px solid var(--rule);border-radius:5px;padding:10px}
+.diagram figcaption{margin-top:.7em;font:13px/1.6 ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+@media(max-width:620px){
+  .diagram img,.diagram .diagram-svg{min-width:640px;max-width:none}
+  .diagram figcaption{min-width:0;position:sticky;left:0;padding-right:10px}
+}
+@media print{
+  .diagram{overflow:visible}
+  .diagram img,.diagram .diagram-svg{min-width:0;max-width:100%;border:0}
+}

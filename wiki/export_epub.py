@@ -67,6 +67,10 @@ def main():
     payload = json.loads((ROOT / "wiki/epub-input.json").read_text())
     chapters = payload["chapters"]
     slugs = {c["slug"] for c in chapters}
+    # 图以独立 SVG 资源随 EPUB 打包：内联 SVG 在 XHTML 里需要切换命名空间，
+    # 独立资源对阅读器更稳。
+    diagram_dir = ROOT / "wiki/assets/diagrams"
+    diagrams = sorted({m for c in chapters for m in re.findall(r'\.\./assets/diagrams/([\w.-]+\.svg)', c["html"])})
 
     def links(match):
         base, sep, fragment = match[1].partition("#")
@@ -81,6 +85,7 @@ def main():
     uid = "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, "opensandbox-architecture-book-c2f55b20e945"))
     modified = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest = ''.join(f'<item id="c{i}" href="{c["slug"]}.xhtml" media-type="application/xhtml+xml"/>' for i, c in enumerate(chapters))
+    manifest += ''.join(f'<item id="dg{i}" href="{name}" media-type="image/svg+xml"/>' for i, name in enumerate(diagrams))
     spine = ''.join(f'<itemref idref="c{i}"/>' for i in range(len(chapters)))
     opf = f'''<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
@@ -91,7 +96,7 @@ def main():
 <meta property="dcterms:modified">{modified}</meta></metadata>
 <manifest><item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/><item id="css" href="book.css" media-type="text/css"/>{manifest}</manifest>
 <spine>{spine}</spine></package>'''
-    css = 'body{font-family:serif;line-height:1.75;margin:1em}h1{font-size:1.65em}h2{font-size:1.3em;margin-top:1.8em}h3{font-size:1.1em}pre{font-size:.8em;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #ccc;padding:.7em}code{font-family:monospace}table{border-collapse:collapse;font-size:.85em}td,th{border-bottom:1px solid #ccc;padding:.4em;text-align:left}a{color:#29564c}blockquote{margin-left:1em;border-left:2px solid #ccc;padding-left:1em}'
+    css = 'body{font-family:serif;line-height:1.75;margin:1em}h1{font-size:1.65em}h2{font-size:1.3em;margin-top:1.8em}h3{font-size:1.1em}pre{font-size:.8em;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #ccc;padding:.7em}code{font-family:monospace}img{max-width:100%;height:auto}table{border-collapse:collapse;font-size:.85em}td,th{border-bottom:1px solid #ccc;padding:.4em;text-align:left}a{color:#29564c}blockquote{margin-left:1em;border-left:2px solid #ccc;padding-left:1em}'
     container = '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
     (ROOT / "exports").mkdir(exist_ok=True)
     path = ROOT / "exports/opensandbox-architecture.epub"
@@ -103,8 +108,11 @@ def main():
         z.writestr("OEBPS/nav.xhtml", nav)
         for c in chapters:
             html = re.sub(r'href="([^"]+)"', links, c["html"])
+            html = re.sub(r'\.\./assets/diagrams/([\w.-]+\.svg)', r'\1', html)
             z.writestr(f'OEBPS/{c["slug"]}.xhtml', xhtml(c["title"], html))
-    print(f"EPUB: {path.name}, {len(chapters)} chapters")
+        for name in diagrams:
+            z.writestr(f"OEBPS/{name}", (diagram_dir / name).read_bytes())
+    print(f"EPUB: {path.name}, {len(chapters)} chapters, {len(diagrams)} diagrams")
 
 
 if __name__ == "__main__":

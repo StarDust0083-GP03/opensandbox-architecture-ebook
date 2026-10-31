@@ -65,51 +65,17 @@ async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxRe
 
 ## 一张图看全
 
-把上面的三层、三种后端、两个平面画在一起，就是这张图。它对应仓库里的进程布局，不是部署建议：一个部署通常只用到其中一条后端分支。
+把上面的三层、三种后端、两个平面画在一起，就是图 1。它对应仓库里的进程布局，不是部署建议：一次部署通常只用到其中一条后端分支。
 
-```text
-[客户端]  SDK (Python/TS/Kotlin/C#/Go) · osb CLI · MCP server
-   |  1. 生命周期请求  POST /v1/sandboxes        (OPEN-SANDBOX-API-KEY)
-   v
-[控制面]  FastAPI 生命周期服务器 :8080
-          middleware  auth · request-id · metrics · date
-          api         lifecycle · proxy · pool · templates · networkpolicy · diagnostics
-          services    SandboxService 接口（13 个方法）
-          repositories snapshots / templates   (SQLite | PostgreSQL)
-   |  2. 工厂按 runtime.type 选后端
-   +-- docker ------> DockerSandboxService ------> Docker daemon
-   +-- kubernetes --+-- KubernetesSandboxService --> BatchSandbox / Pool / SandboxSnapshot
-                    |                                  + controller(3 个 reconciler)
-                    +-- FastSandboxService --------> FastPath gRPC:9090 --> Fastlet --> microVM
-   |  3. GET /v1/sandboxes/{id}/endpoints/{port}  -> 地址 + 必需请求头
-   v
-[数据面]  沙箱（容器 / Pod / microVM）
-          用户 entrypoint  <-->  execd :44772  <--> 可选 Jupyter 内核
-          egress sidecar :18080（共享 netns，唯一持有 NET_ADMIN）
-   |  4. 业务流量：直连 / ingress 网关（头或 URI 路由）/ 服务器代理 /proxy/{port}
-   v
-[网络]    ingress  OpenSandbox-Ingress-To 路由，WebSocket 一等公民
-          egress   DNS 过滤 -> nftables 默认拒绝 -> MITM 拦截 + Credential Vault
-   +- 旁路  node-agent（DaemonSet 采集）· OTel 指标 · diagnostics logs/events
-```
+{{diagram:architecture|图 1：OpenSandbox 整体架构。五层从上到下是客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头是一次请求的路径，其中 ② 在同一份配置下只走一条后端分支。}}
 
 同一张图换一个角度看：一次创建请求在时间轴上的落点，以及每一跳对应的章节。
 
-```text
-t0  客户端  POST /v1/sandboxes
-    |
-t1  控制面  认证 -> 校验 -> 委派                      第 4 篇
-t2  后端    建/认领工作负载（容器 / Pod / microVM）     第 6、7、8 篇
-t3  数据面  execd 启动并等待 per-allocation 绑定        第 9 篇
-t4  网络    egress 规则就位，deny-first                  第 11 篇
-t5  控制面  返回 Pending，客户端轮询到 Running           第 4、7 篇
-t6  客户端  GET /endpoints/{port} -> 地址 + 头           第 10 篇
-t7  数据面  POST /command -> SSE -> execution_complete  第 9 篇
-```
+{{diagram:request-flow|图 2：一次创建到执行的时序。注意三个边界：池满时是 429 而不是排队；Kubernetes 容器后端会等到 Running 才返回创建结果；endpoint 解析返回的是「地址 + 必需请求头」，不是裸地址。}}
 
 两条容易被这张图纠正的直觉：
 
-- **创建是异步的，但 K8s 容器后端会等到 `Running`**（第 7 篇），所以 t5 的「轮询」在多数场景只剩一次确认。
+- **创建是异步的，但 K8s 容器后端会等到 `Running`**（第 7 篇），所以「轮询到就绪」在多数场景只剩一次确认。
 - **execd 与 egress 都在沙箱的网络命名空间里，但只有 egress 有 `NET_ADMIN`**；execd 负责执行，不负责管网络。
 
 ## 运行时中立，执行具体

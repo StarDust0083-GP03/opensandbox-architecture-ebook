@@ -52,6 +52,8 @@
 <td>释放</td>
 </tr>
 </tbody></table>
+<figure class="diagram"><img src="../assets/diagrams/lifecycle.svg" alt="图 3：沙箱生命周期状态机。粗体关注两条边：`Pausing → Paused` 必须等快照可用，`Resuming → Running` 保证 sandboxId 不变但地址可能变。`Failed` 是终态——文档的选择是换新沙箱，而不是悄悄复活。" width="703" height="791"><figcaption>图 3：沙箱生命周期状态机。粗体关注两条边：`Pausing → Paused` 必须等快照可用，`Resuming → Running` 保证 sandboxId 不变但地址可能变。`Failed` 是终态——文档的选择是换新沙箱，而不是悄悄复活。</figcaption></figure>
+
 <p>这张表说明「暂停」在三种后端上不是同一件事。Docker 的 pause 只是冻结，不省内存；Kubernetes 与 Fast Sandbox 才是真的把算力还回去。</p>
 <p>第二行的顺序值得再提一次：暂停先冻结主容器、再冻结 sidecar；恢复先解 sidecar、再解主容器。因为主容器一解冻就会发网络请求，此时 egress 必须已经在工作。</p>
 <p><strong>快照不是暂停。</strong> 文档为 Kubernetes 后端把两者分得很清楚：暂停是内部机制，目的是释放算力并保留连续性（同一沙箱 ID）；快照是公开产物，目的是把状态变成可复制的起点（新沙箱 ID）。两者共用一部分提交机制，但语义不同。</p>
