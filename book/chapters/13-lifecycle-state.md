@@ -29,7 +29,7 @@
 | 限制 | 无特殊限制 | `replicas=1` | 无特殊限制 |
 | 算力足迹 | 保留（进程被冻结） | 释放 | 释放 |
 
-{{diagram:lifecycle|图 3：沙箱生命周期状态机。粗体关注两条边：`Pausing → Paused` 必须等快照可用，`Resuming → Running` 保证 sandboxId 不变但地址可能变。`Failed` 是终态——文档的选择是换新沙箱，而不是悄悄复活。}}
+{{diagram:lifecycle|图 3：Kubernetes BatchSandbox 的运行与暂停循环，展示正常路径及仍可重试的失败路径。PauseFailed 与 ResumeFailed 是条件，不必然等于 Failed 状态。暂停成功后才释放资源；恢复保留 sandboxId，但地址可能变化。删除后的 404 是资源不存在，不是 Terminated 的别名。}}
 
 这张表说明「暂停」在三种后端上不是同一件事。Docker 的 pause 只是冻结，不省内存；Kubernetes 与 Fast Sandbox 才是真的把算力还回去。
 

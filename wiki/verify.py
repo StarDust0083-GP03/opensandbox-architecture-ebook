@@ -1,5 +1,6 @@
 """Check generated HTML links, anchors, source inventory and EPUB packaging."""
 from html.parser import HTMLParser
+import base64
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -51,6 +52,17 @@ def main():
 
     offline = pages[(ROOT / "wiki/book.html").resolve()]
     assert not offline.script_sources, "single-file HTML has external scripts"
+    diagram_payloads = {p.read_bytes() for p in (ROOT / 'book/diagrams').glob('*.svg')}
+    embedded = [base64.b64decode(link.split(',', 1)[1], validate=True)
+                for link in offline.links if link.startswith('data:image/svg+xml;base64,')]
+    assert set(embedded) == diagram_payloads, 'offline diagrams differ from source SVGs'
+    for payload in embedded:
+        tree = ET.fromstring(payload)
+        svg_ids = {e.attrib['id'] for e in tree.iter() if 'id' in e.attrib}
+        # Mermaid's stylesheet contains unused gradient defaults; validate actual element attributes.
+        refs = [ref for e in tree.iter() for value in e.attrib.values()
+                for ref in re.findall(r'url\(\s*[\"\x27]?#([^\s)\"\x27]+)', value)]
+        assert set(refs) <= svg_ids, f'broken SVG marker references: {set(refs) - svg_ids}'
 
     for entry in entries:
         md = (ROOT / 'book/chapters' / (entry['slug'] + '.md')).read_text()
@@ -70,7 +82,7 @@ def main():
         assert z.infolist()[0].compress_type == ZIP_STORED
         assert z.read("mimetype") == b"application/epub+zip"
         xml_files = {name: ET.fromstring(z.read(name)) for name in z.namelist()
-                     if name.endswith((".xhtml", ".opf", ".xml"))}
+                     if name.endswith((".xhtml", ".opf", ".xml", ".svg"))}
         names = set(z.namelist())
         ids = {name: {e.attrib["id"] for e in tree.iter() if "id" in e.attrib}
                for name, tree in xml_files.items()}

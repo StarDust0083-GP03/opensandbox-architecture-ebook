@@ -1,30 +1,19 @@
-%% 一次创建请求的时序（第 02 篇）
-%%{init: {"sequence": {"width": 110, "actorMargin": 26, "messageMargin": 20, "wrap": true}}}%%
-%% 渲染：mmdc -i request-flow.mmd -o request-flow.svg -c mermaid.json -p puppeteer.json
+%% Kubernetes BatchSandbox 池化成功路径；失败分支不与本图混画。
+%%{init: {"sequence": {"width": 140, "actorMargin": 38, "wrap": true}}}%%
 sequenceDiagram
   participant C as 客户端
-  participant S as 控制面
-  participant R as 运行时后端
-  participant E as execd
-  participant G as egress
-
+  participant S as 生命周期服务器
+  participant K as K8s 控制器
+  participant E as 沙箱内 execd
   C->>S: POST /v1/sandboxes
-  S->>S: 认证 → 校验 → 委派
-  S->>R: 创建或认领工作负载
-  alt 池有空闲槽位
-    R-->>S: 分配完成（常数时间）
-  else 池容量耗尽
-    R-->>S: 分配待定
-    S-->>C: 429（可重试）
-  end
-  R->>E: 启动 + 下发绑定
-  R->>G: 安装 deny-first 规则
-  S-->>C: Pending
-  C->>S: GET /sandboxes/{id}
-  S-->>C: Running
+  Note over S: 认证、校验、创建 BatchSandbox
+  S->>K: 写入资源，由 watch 触发 reconcile
+  K->>E: 分配暖 Pod，经任务执行器下发绑定
+  Note over K,E: 网络控制预置于 Pool 模板；业务接口等待绑定完成
+  K-->>S: 工作负载状态更新（watch）
+  S-->>C: 创建响应（已分配，不等于应用就绪）
   C->>S: GET /endpoints/44772
-  S-->>C: 地址 + 请求头
-  C->>E: POST /command
-  E-->>C: SSE 事件流
-  C->>S: DELETE /sandboxes/{id}
-  S-->>C: 204（异步清理）
+  S-->>C: 可达地址与必需请求头
+  C->>E: 健康检查后 POST /command
+  E-->>C: SSE 输出与终止事件
+  Note over C,S: 池容量耗尽：有界等待后返回 429；本次流程到此结束

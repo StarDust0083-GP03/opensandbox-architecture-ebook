@@ -1,198 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 908" role="img" aria-labelledby="archTitle archDesc" class="arch-diagram">
-  <title id="archTitle">OpenSandbox 整体架构</title>
-  <desc id="archDesc">五层结构：客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头标出一次请求的路径。</desc>
-  <style>
-    .a-band{fill:none}
-    .a-band-title{font:600 11.5px ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;fill:var(--a-accent,#29564c)}
-    .a-rule{stroke:var(--a-rule,#d9d2c3);stroke-width:1}
-    .a-panel{fill:var(--a-panel,#f0ece2);stroke:var(--a-rule,#d9d2c3);stroke-width:1}
-    .a-box{fill:var(--a-paper,#faf7ef);stroke:var(--a-edge,#bdb5a3);stroke-width:1}
-    .a-title{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:var(--a-ink,#252820)}
-    .a-sub{font:11.5px ui-sans-serif,system-ui,sans-serif;fill:var(--a-muted,#5d665e)}
-    .a-mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px}
-    .a-arrow{stroke:var(--a-accent,#29564c);stroke-width:1.6;fill:none}
-    .a-arrow-label{font:600 11.5px ui-sans-serif,system-ui,sans-serif;fill:var(--a-accent,#29564c)}
-    .a-badge{fill:var(--a-accent,#29564c)}
-    .a-badge-text{font:600 10px ui-sans-serif,system-ui,sans-serif;fill:#faf7ef;text-anchor:middle}
-    .a-wrap{fill:var(--a-paper,#faf7ef)}
-  </style>
-  <defs>
-    <marker id="a-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,1 L9,5 L0,9 z" fill="var(--a-accent,#29564c)"/>
-    </marker>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="980" viewBox="0 0 1160 980" role="img" aria-labelledby="overview-title overview-desc">
+<title id="overview-title">OpenSandbox：管理、入向访问与出向控制</title>
+<desc id="overview-desc">客户端通过生命周期服务器管理沙箱，通过解析到的访问路径连接 execd。运行时提供资源；沙箱出向由 egress 控制，观测是旁路。</desc>
+<style>text{font-family:"Noto Sans CJK SC",system-ui,sans-serif;fill:#252820}.title{font-size:22px;font-weight:650}.sub{font-size:17px;fill:#525d53}.edge{font-size:17px;fill:#29564c}.box{fill:#faf7ef;stroke:#a5ad9e;stroke-width:1.4}.focal{fill:#edf2e9;stroke:#29564c;stroke-width:2}.wire{fill:none;stroke:#29564c;stroke-width:2}.passive{fill:none;stroke:#7a8575;stroke-width:1.5;stroke-dasharray:6 5}</style>
+<defs><marker id="overview-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 1 L9 5 L0 9" fill="#29564c"/></marker></defs>
+<rect width="1160" height="980" fill="#faf7ef"/>
+<text x="40" y="36" class="sub">控制面管理资源；数据面处理执行与服务访问，两者不是串行代理链</text>
+<!-- Connectors precede nodes. Separate management, access, outbound and observation. -->
+<path class="wire" d="M190 170 V250" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="204" y="210">生命周期 / endpoint 查询</text>
+<path class="wire" d="M340 120 H400" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="346" y="100">访问</text>
+<path class="wire" d="M340 315 H400" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="346" y="293">委派</text>
+<path class="wire" d="M620 390 V470" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="636" y="432">创建 / 分配</text>
+<path class="wire" d="M1000 120 H1092 Q1100 120 1100 128 V430 Q1100 438 1092 438 H788 Q780 438 780 446 V470" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="840" y="420">HTTP / SSE / WebSocket</text>
+<path class="wire" d="M600 660 V740" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="616" y="706">出向流量</text>
+<path class="wire" d="M800 805 H900" marker-end="url(#overview-arrow)"/>
+<text class="edge" x="814" y="783">放行</text>
+<path class="passive" d="M400 550 H340" marker-end="url(#overview-arrow)"/>
+<text class="sub" x="346" y="580">采集</text>
 
-  <rect class="a-wrap" x="0" y="0" width="1040" height="908"/>
-
-  <!-- 1 客户端 -->
-  <g id="band-client">
-    <text class="a-band-title" x="20" y="24">客户端 / CLIENT</text>
-    <line class="a-rule" x1="20" y1="32" x2="1020" y2="32"/>
-    <g id="b-sdk" data-box="1">
-      <rect class="a-box" x="20" y="40" width="320" height="60" rx="5"/>
-      <text class="a-title" x="34" y="62">Sandbox SDK · 5 种语言</text>
-      <text class="a-sub" x="34" y="82">Python · TypeScript · Kotlin · C# · Go</text>
-    </g>
-    <g id="b-cli" data-box="1">
-      <rect class="a-box" x="356" y="40" width="180" height="60" rx="5"/>
-      <text class="a-title" x="370" y="66">osb CLI</text>
-      <text class="a-sub" x="370" y="84">终端运维</text>
-    </g>
-    <g id="b-mcp" data-box="1">
-      <rect class="a-box" x="552" y="40" width="180" height="60" rx="5"/>
-      <text class="a-title" x="566" y="66">MCP server</text>
-      <text class="a-sub" x="566" y="84">Claude Code / Cursor</text>
-    </g>
-  </g>
-
-  <!-- 箭头 1 -->
-  <g id="flow-1">
-    <path class="a-arrow" d="M140,104 L140,150" marker-end="url(#a-head)"/>
-    <circle class="a-badge" cx="140" cy="127" r="9"/>
-    <text class="a-badge-text" x="140" y="130.5">1</text>
-    <text class="a-arrow-label" x="158" y="131">POST /v1/sandboxes（OPEN-SANDBOX-API-KEY）</text>
-  </g>
-
-  <!-- 2 控制面 -->
-  <g id="band-control">
-    <text class="a-band-title" x="20" y="172">控制面 / CONTROL PLANE</text>
-    <line class="a-rule" x1="20" y1="180" x2="1020" y2="180"/>
-    <rect class="a-panel" x="20" y="190" width="1000" height="140" rx="7"/>
-    <text class="a-title" x="36" y="212">FastAPI 生命周期服务器 · :8080</text>
-    <text class="a-sub" x="290" y="212">只做认证、校验、持久化自有记录、委派；不碰沙箱内部</text>
-
-    <g id="b-mw" data-box="1">
-      <rect class="a-box" x="36" y="226" width="224" height="88" rx="5"/>
-      <text class="a-title" x="50" y="246">middleware</text>
-      <text class="a-sub" x="50" y="266">auth · request-id</text>
-      <text class="a-sub" x="50" y="284">metrics · date · CORS</text>
-    </g>
-    <g id="b-api" data-box="1">
-      <rect class="a-box" x="276" y="226" width="356" height="88" rx="5"/>
-      <text class="a-title" x="290" y="246">api</text>
-      <text class="a-sub" x="290" y="266">lifecycle · proxy · pool · templates</text>
-      <text class="a-sub" x="290" y="284">networkpolicy · diagnostics · devops</text>
-    </g>
-    <g id="b-svc" data-box="1">
-      <rect class="a-box" x="648" y="226" width="170" height="88" rx="5"/>
-      <text class="a-title" x="662" y="246">services</text>
-      <text class="a-sub a-mono" x="662" y="266">SandboxService</text>
-      <text class="a-sub" x="662" y="284">13 个方法</text>
-    </g>
-    <g id="b-repo" data-box="1">
-      <rect class="a-box" x="834" y="226" width="170" height="88" rx="5"/>
-      <text class="a-title" x="848" y="246">repositories</text>
-      <text class="a-sub" x="848" y="266">snapshots · templates</text>
-      <text class="a-sub" x="848" y="284">SQLite | PostgreSQL</text>
-    </g>
-  </g>
-
-  <!-- 箭头 2 -->
-  <g id="flow-2">
-    <path class="a-arrow" d="M140,336 L140,382" marker-end="url(#a-head)"/>
-    <circle class="a-badge" cx="140" cy="359" r="9"/>
-    <text class="a-badge-text" x="140" y="362.5">2</text>
-    <text class="a-arrow-label" x="158" y="363">工厂按 runtime.type 选后端；kubernetes 再按 templateId / fsb- 前缀分流</text>
-  </g>
-
-  <!-- 3 运行时后端 -->
-  <g id="band-runtime">
-    <text class="a-band-title" x="20" y="404">运行时后端 / RUNTIME</text>
-    <line class="a-rule" x1="20" y1="412" x2="1020" y2="412"/>
-    <g id="b-docker" data-box="1">
-      <rect class="a-box" x="20" y="422" width="300" height="128" rx="5"/>
-      <text class="a-title" x="34" y="444">DockerSandboxService</text>
-      <text class="a-sub" x="34" y="466">Docker daemon</text>
-      <text class="a-sub" x="34" y="486">每沙箱一个宿主端口</text>
-      <text class="a-sub a-mono" x="34" y="506">/proxy/{port}</text>
-      <text class="a-sub" x="34" y="526">pause 冻结容器，snapshot 提交本地镜像</text>
-    </g>
-    <g id="b-k8s" data-box="1">
-      <rect class="a-box" x="336" y="422" width="340" height="128" rx="5"/>
-      <text class="a-title" x="350" y="444">KubernetesSandboxService</text>
-      <text class="a-sub" x="350" y="466">BatchSandbox · Pool · SandboxSnapshot</text>
-      <text class="a-sub" x="350" y="486">3 个 reconciler；Pool 预热让创建变认领</text>
-      <text class="a-sub" x="350" y="506">provider：batchsandbox | agent-sandbox</text>
-      <text class="a-sub" x="350" y="526">pause 提交 rootfs 镜像并释放 Pod</text>
-    </g>
-    <g id="b-fsb" data-box="1">
-      <rect class="a-box" x="692" y="422" width="328" height="128" rx="5"/>
-      <text class="a-title" x="706" y="444">FastSandboxService</text>
-      <text class="a-sub a-mono" x="706" y="466">FastPath gRPC :9090</text>
-      <text class="a-sub" x="706" y="486">→ Fastlet（预热 Pod） → microVM</text>
-      <text class="a-sub" x="706" y="506">模板 golden image；检查点含内存</text>
-      <text class="a-sub" x="706" y="526">CRD 为事实来源，控制面单副本</text>
-    </g>
-  </g>
-
-  <!-- 箭头 3 -->
-  <g id="flow-3">
-    <path class="a-arrow" d="M140,558 L140,604" marker-end="url(#a-head)"/>
-    <circle class="a-badge" cx="140" cy="581" r="9"/>
-    <text class="a-badge-text" x="140" y="584.5">3</text>
-    <text class="a-arrow-label" x="158" y="585">GET /v1/sandboxes/{id}/endpoints/{port} → 地址 + 必需请求头</text>
-  </g>
-
-  <!-- 4 数据面 -->
-  <g id="band-data">
-    <text class="a-band-title" x="20" y="626">数据面 / SANDBOX</text>
-    <line class="a-rule" x1="20" y1="634" x2="1020" y2="634"/>
-    <rect class="a-panel" x="20" y="644" width="1000" height="116" rx="7"/>
-    <text class="a-title" x="36" y="666">沙箱 · 容器 / Pod / microVM</text>
-    <text class="a-sub" x="250" y="666">执行接口相同，隔离边界不同</text>
-
-    <g id="b-entry" data-box="1">
-      <rect class="a-box" x="36" y="676" width="208" height="70" rx="5"/>
-      <text class="a-title" x="50" y="700">用户 entrypoint</text>
-      <text class="a-sub" x="50" y="720">镜像自带进程</text>
-      <text class="a-sub" x="50" y="736">生命周期钩子在此前后</text>
-    </g>
-    <g id="b-execd" data-box="1">
-      <rect class="a-box" x="260" y="676" width="300" height="70" rx="5"/>
-      <text class="a-title" x="274" y="700">execd · :44772</text>
-      <text class="a-sub" x="274" y="720">命令 · 文件 · PTY · 隔离会话</text>
-      <text class="a-sub" x="274" y="736">SSE 流：stdout / exit_code</text>
-    </g>
-    <g id="b-jupyter" data-box="1">
-      <rect class="a-box" x="576" y="676" width="180" height="70" rx="5"/>
-      <text class="a-title" x="590" y="700">Jupyter 内核</text>
-      <text class="a-sub" x="590" y="720">代码上下文</text>
-      <text class="a-sub" x="590" y="736">可选</text>
-    </g>
-    <g id="b-egress" data-box="1">
-      <rect class="a-box" x="772" y="676" width="232" height="70" rx="5"/>
-      <text class="a-title" x="786" y="700">egress sidecar · :18080</text>
-      <text class="a-sub" x="786" y="720">共享 netns</text>
-      <text class="a-sub" x="786" y="736">Pod 内唯一 NET_ADMIN</text>
-    </g>
-  </g>
-
-  <!-- 箭头 4 -->
-  <g id="flow-4">
-    <path class="a-arrow" d="M140,764 L140,782" marker-end="url(#a-head)"/>
-    <circle class="a-badge" cx="140" cy="773" r="8"/>
-    <text class="a-badge-text" x="140" y="776.5">4</text>
-    <text class="a-arrow-label" x="156" y="777">业务流量：直连 / ingress 网关 / 服务器代理</text>
-  </g>
-
-  <!-- 5 网络 -->
-  <g id="band-net">
-    <text class="a-band-title" x="20" y="808">网络与旁路 / NETWORK</text>
-    <line class="a-rule" x1="20" y1="816" x2="1020" y2="816"/>
-    <g id="b-ingress" data-box="1">
-      <rect class="a-box" x="20" y="826" width="320" height="66" rx="5"/>
-      <text class="a-title" x="34" y="850">ingress 网关（K8s 入向）</text>
-      <text class="a-sub" x="34" y="870">头 / URI / 签名路由，WebSocket 一等公民</text>
-    </g>
-    <g id="b-egressband" data-box="1">
-      <rect class="a-box" x="356" y="826" width="320" height="66" rx="5"/>
-      <text class="a-title" x="370" y="850">egress 策略（出向）</text>
-      <text class="a-sub" x="370" y="870">DNS → nftables → MITM / Credential Vault</text>
-    </g>
-    <g id="b-obs" data-box="1">
-      <rect class="a-box" x="692" y="826" width="328" height="66" rx="5"/>
-      <text class="a-title" x="706" y="850">旁路</text>
-      <text class="a-sub" x="706" y="870">node-agent · OTel · diagnostics logs/events</text>
-    </g>
-  </g>
-</svg>
+<g data-box="1" id="client"><rect class="box" x="40" y="70" width="300" height="100" rx="6"/>
+<text class="title" x="60" y="102">客户端</text>
+<text class="sub" x="60" y="132">SDK · osb CLI · MCP</text>
+</g>
+<g data-box="1" id="access"><rect class="box" x="400" y="70" width="600" height="100" rx="6"/>
+<text class="title" x="420" y="102">解析得到的访问路径</text>
+<text class="sub" x="420" y="132">直连 / ingress 网关 / 服务器代理，保留地址与请求头</text>
+</g>
+<g data-box="1" id="server"><rect class="focal" x="40" y="250" width="300" height="140" rx="6"/>
+<text class="title" x="60" y="282">生命周期服务器 :8080</text>
+<text class="sub" x="60" y="312">认证 · 租户 · 校验 · 委派</text>
+<text class="sub" x="60" y="338">SQLite / PG：快照与模板目录</text>
+</g>
+<g data-box="1" id="runtimes"><rect class="box" x="400" y="250" width="600" height="140" rx="6"/>
+<text class="title" x="420" y="282">运行时适配：Docker 或 Kubernetes</text>
+<text class="sub" x="420" y="312">Docker daemon；K8s 容器 provider + Controller</text>
+<text class="sub" x="420" y="338">K8s 模板分支：FastPath → Fastlet → microVM</text>
+</g>
+<g data-box="1" id="observe"><rect class="box" x="40" y="470" width="300" height="190" rx="6"/>
+<text class="title" x="60" y="502">观测（旁路，不转发业务）</text>
+<text class="sub" x="60" y="532">OTel 指标 / diagnostics</text>
+<text class="sub" x="60" y="558">可选 Node Agent：</text>
+<text class="sub" x="60" y="584">K8s 节点级日志采集</text>
+</g>
+<g data-box="1" id="sandbox"><rect class="focal" x="400" y="470" width="400" height="190" rx="6"/>
+<text class="title" x="420" y="502">沙箱中的执行与服务</text>
+<text class="sub" x="420" y="532">execd :44772 → 命令 / 文件 / PTY</text>
+<text class="sub" x="420" y="558">用户 entrypoint 与应用端口</text>
+<text class="sub" x="420" y="584">代码执行可选接入 Jupyter</text>
+</g>
+<g data-box="1" id="egress"><rect class="box" x="400" y="740" width="400" height="140" rx="6"/>
+<text class="title" x="420" y="772">egress：出向策略与 Vault</text>
+<text class="sub" x="420" y="802">容器：每沙箱 / Pod 一个 sidecar</text>
+<text class="sub" x="420" y="828">Fast Sandbox：每 Fastlet 共享进程</text>
+<text class="sub" x="420" y="854">DNS + nftables；可选 MITM 注入凭据</text>
+</g>
+<g data-box="1" id="external"><rect class="box" x="900" y="740" width="220" height="140" rx="6"/>
+<text class="title" x="920" y="772">外部服务</text>
+<text class="sub" x="920" y="802">依赖源 · 模型 API</text>
+<text class="sub" x="920" y="828">其他允许的目标</text>
+</g>
+<line x1="40" y1="922" x2="1120" y2="922" stroke="#d9d2c3"/>
+<text class="sub" x="40" y="950">实线：管理或流量关系。虚线：旁路观测。模块细节见后续章节；并非要求部署所有组件。</text></svg>

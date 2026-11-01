@@ -1,42 +1,33 @@
-# 图与检查记录
+# 图表源文件与预览
 
-书里有三张图，全部是矢量图，构建时进站点、单文件与 EPUB。
+三张发布图均为直接可编辑的 SVG；时序图与状态图另保留 Mermaid 语义源。自动渲染 Mermaid 不会复现发布 SVG 的手工布局，请勿覆盖发布稿。
 
-| 图 | 源 | 渲染产物 | 用在 |
+| 图 | 发布源 | 语义源 | 位置 |
 |---|---|---|---|
-| 整体架构 | `architecture.svg`（手写） | `architecture.svg` | 第 02 篇 |
-| 创建到执行时序 | `request-flow.mmd`（Mermaid） | `request-flow.svg` | 第 02 篇 |
-| 生命周期状态机 | `lifecycle.mmd`（Mermaid） | `lifecycle.svg` | 第 13 篇 |
+| 整体架构 | architecture.svg | — | 第 02 篇 |
+| BatchSandbox 池化成功路径 | request-flow.svg | request-flow.mmd | 第 02 篇 |
+| BatchSandbox 运行与暂停循环 | lifecycle.svg | lifecycle.mmd | 第 13 篇 |
 
-## 预览
+## 整体架构
 
-![整体架构](architecture.svg)
+![管理、访问、出向控制与观测的组件关系](architecture.svg)
 
-![创建到执行时序](request-flow.svg)
+## 创建与执行
 
-![生命周期状态机](lifecycle.svg)
+![Kubernetes BatchSandbox 池化成功路径](request-flow.svg)
 
-PNG 版预览在 `preview/`（视口截图，浅色纸面）。
+## 生命周期
 
-## 重新渲染
+![正常退出、失败与可重试的暂停恢复](lifecycle.svg)
 
-```bash
-cd book/diagrams
-npx -y @mermaid-js/mermaid-cli@11 -i architecture.mmd -o architecture.svg -c mermaid.json -p puppeteer.json
-```
+PNG 截图在 `preview/`，来自最终 SVG 的浏览器渲染。
 
-（手写的 `architecture.svg` 不需要渲染；`mermaid.json` 固定字体与配色，`puppeteer.json` 指向本机 Chromium。）
+## 维护与检查
 
-## 检查了什么
+- 编辑发布稿：直接改 SVG 的节点、文字与正交路径。
+- Mermaid 是逻辑交流用的辅助源；可用 `mmdc -i request-flow.mmd -o /tmp/request-flow.svg -c mermaid.json -p puppeteer.json` 预览。`puppeteer.json` 的 Chromium 路径是本机设置。
+- 正文图指令由 `wiki/build.mjs` 处理：站点引用 SVG，离线合订本用 data URI 封装原始字节，EPUB 打包独立资源。
+- `checks/geometry.js` 在 `#stage` 内嵌 SVG 上检查越界、压字和节点相交；需浏览器执行。
+- 每次改图同时更新 `preview/`、运行构建与 `wiki/verify.py`，然后读取截图复核。几何无告警不能证明语义正确。
 
-`checks/geometry.js` 在浏览器里对内联 SVG 做几何断言，逐图运行结果见 `VALIDATION.md`：
-
-- 所有 `<text>` 的屏幕矩形都在画布内（不被裁切）；
-- 每个节点内的文字完整落在该节点矩形内（`label-outside-node` 为 0）；
-- 节点矩形两两不重叠；
-- Mermaid 的边标签（`g.edgeLabel`）不与节点矩形相交；
-- 文字之间没有超过 25% 面积的重叠。
-
-检查方法：把 SVG 内联进一个空白页面，用 `getBoundingClientRect()`（包含 transform）而不是 `getBBox()`（局部坐标，会误报），逐元素比较。
-
-几何通过不等于"好看"。本轮没有可用的人眼/视觉模型复核，所以另存了 `preview/*.png`，供人工过目。
+本轮技术问题、修复和测试结果见根目录 `VALIDATION.md`。

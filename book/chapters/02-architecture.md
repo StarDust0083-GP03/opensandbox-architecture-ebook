@@ -65,18 +65,18 @@ async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxRe
 
 ## 一张图看全
 
-把上面的三层、三种后端、两个平面画在一起，就是图 1。它对应仓库里的进程布局，不是部署建议：一次部署通常只用到其中一条后端分支。
+图 1 分开画管理请求、入向访问、出向控制和旁路观测。运行时适配只列出选择，不把所有组件假装成一条串行流水线。
 
-{{diagram:architecture|图 1：OpenSandbox 整体架构。五层从上到下是客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头是一次请求的路径，其中 ② 在同一份配置下只走一条后端分支。}}
+{{diagram:architecture|图 1：OpenSandbox 组件与交互关系。管理请求进入生命周期服务器；执行流量经解析后的路径到达沙箱；egress 管出向，观测走旁路。容器使用 sidecar，Fast Sandbox 使用每 Fastlet 共享的 egress 进程。}}
 
 同一张图换一个角度看：一次创建请求在时间轴上的落点，以及每一跳对应的章节。
 
-{{diagram:request-flow|图 2：一次创建到执行的时序。注意三个边界：池满时是 429 而不是排队；Kubernetes 容器后端会等到 Running 才返回创建结果；endpoint 解析返回的是「地址 + 必需请求头」，不是裸地址。}}
+{{diagram:request-flow|图 2：Kubernetes BatchSandbox 池化成功路径（资源 watch 与任务执行器细节作逻辑归并）。创建响应不等于应用就绪；拿到 endpoint 与请求头后仍需健康检查。容量耗尽返回 429 的请求不进入后续执行步骤。}}
 
 两条容易被这张图纠正的直觉：
 
 - **创建是异步的，但 K8s 容器后端会等到 `Running`**（第 7 篇），所以「轮询到就绪」在多数场景只剩一次确认。
-- **execd 与 egress 都在沙箱的网络命名空间里，但只有 egress 有 `NET_ADMIN`**；execd 负责执行，不负责管网络。
+- **容器后端中 execd 与 egress 共享网络命名空间，只有 egress 持有所需的 `NET_ADMIN`**；Fast Sandbox 的共享 egress 在 microVM guest 外，不能套用同一进程布局。
 
 ## 运行时中立，执行具体
 

@@ -21,13 +21,19 @@
  for(const el of root.querySelectorAll('g.edgeLabel')){
    const b=el.getBoundingClientRect(); if(b.width===0) continue;
    for(const n of nodeRects){
-     if(inside(b,n.r,0)) out.push({t:'edgeLabel-overlaps-node',edge:el.textContent.trim().slice(0,24),node:n.id});
+     if(b.left<n.r.right&&n.r.left<b.right&&b.top<n.r.bottom&&n.r.top<b.bottom) out.push({t:'edgeLabel-overlaps-node',edge:el.textContent.trim().slice(0,24),node:n.id});
    }
  }
  for(let i=0;i<nodeRects.length;i++)for(let j=i+1;j<nodeRects.length;j++){
    const a=nodeRects[i].r,b=nodeRects[j].r;
    if(a.width&&b.width&&a.left<b.right-1&&b.left<a.right-1&&a.top<b.bottom-1&&b.top<a.bottom-1)
      out.push({t:'node-overlap',a:nodeRects[i].id,b:nodeRects[j].id});
+ }
+ for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++){
+   const a=texts[i].getBoundingClientRect(),b=texts[j].getBoundingClientRect();
+   const w=Math.min(a.right,b.right)-Math.max(a.left,b.left),h=Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top);
+   if(w>0&&h>0&&(w*h)/Math.min(a.width*a.height,b.width*b.height)>0.25)
+     out.push({t:'text-overlap',a:texts[i].textContent.slice(0,20),b:texts[j].textContent.slice(0,20)});
  }
  return JSON.stringify({canvas:[Math.round(rr.width),Math.round(rr.height)],nodes:nodeRects.length,texts:texts.length,issues:out.length,detail:out.slice(0,10)});
 })()

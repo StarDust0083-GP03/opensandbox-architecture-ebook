@@ -14,7 +14,7 @@
 - `exports/opensandbox-architecture.epub`：EPUB 3（构建时同时复制到 `wiki/` 供阅读站下载）
 - `book/OpenSandbox架构解剖.md`：合并书稿
 - `book/SUMMARY.md`：分章目录
-- `book/diagrams/`：3 张矢量图（1 张手写 SVG + 2 张 Mermaid 源与渲染结果）及几何检查脚本
+- `book/diagrams/`：3 张手工排版 SVG、2 份 Mermaid 语义源、浏览器截图与几何检查脚本
 - `sources/inventory.json`：79 个固定源码/文档路径及 SHA-256
 
 ## 内容结构

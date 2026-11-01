@@ -244,18 +244,18 @@ async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxRe
 
 ## 一张图看全
 
-把上面的三层、三种后端、两个平面画在一起，就是图 1。它对应仓库里的进程布局，不是部署建议：一次部署通常只用到其中一条后端分支。
+图 1 分开画管理请求、入向访问、出向控制和旁路观测。运行时适配只列出选择，不把所有组件假装成一条串行流水线。
 
-{{diagram:architecture|图 1：OpenSandbox 整体架构。五层从上到下是客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头是一次请求的路径，其中 ② 在同一份配置下只走一条后端分支。}}
+![图 1：OpenSandbox 组件与交互关系。管理请求进入生命周期服务器；执行流量经解析后的路径到达沙箱；egress 管出向，观测走旁路。容器使用 sidecar，Fast Sandbox 使用每 Fastlet 共享的 egress 进程。](diagrams/architecture.svg)
 
 同一张图换一个角度看：一次创建请求在时间轴上的落点，以及每一跳对应的章节。
 
-{{diagram:request-flow|图 2：一次创建到执行的时序。注意三个边界：池满时是 429 而不是排队；Kubernetes 容器后端会等到 Running 才返回创建结果；endpoint 解析返回的是「地址 + 必需请求头」，不是裸地址。}}
+![图 2：Kubernetes BatchSandbox 池化成功路径（资源 watch 与任务执行器细节作逻辑归并）。创建响应不等于应用就绪；拿到 endpoint 与请求头后仍需健康检查。容量耗尽返回 429 的请求不进入后续执行步骤。](diagrams/request-flow.svg)
 
 两条容易被这张图纠正的直觉：
 
 - **创建是异步的，但 K8s 容器后端会等到 `Running`**（第 7 篇），所以「轮询到就绪」在多数场景只剩一次确认。
-- **execd 与 egress 都在沙箱的网络命名空间里，但只有 egress 有 `NET_ADMIN`**；execd 负责执行，不负责管网络。
+- **容器后端中 execd 与 egress 共享网络命名空间，只有 egress 持有所需的 `NET_ADMIN`**；Fast Sandbox 的共享 egress 在 microVM guest 外，不能套用同一进程布局。
 
 ## 运行时中立，执行具体
 
@@ -1950,7 +1950,7 @@ sidecar 有三个与 TLS/作用域相关的环境变量，都是默认关：
 | 限制 | 无特殊限制 | `replicas=1` | 无特殊限制 |
 | 算力足迹 | 保留（进程被冻结） | 释放 | 释放 |
 
-{{diagram:lifecycle|图 3：沙箱生命周期状态机。粗体关注两条边：`Pausing → Paused` 必须等快照可用，`Resuming → Running` 保证 sandboxId 不变但地址可能变。`Failed` 是终态——文档的选择是换新沙箱，而不是悄悄复活。}}
+![图 3：Kubernetes BatchSandbox 的运行与暂停循环，展示正常路径及仍可重试的失败路径。PauseFailed 与 ResumeFailed 是条件，不必然等于 Failed 状态。暂停成功后才释放资源；恢复保留 sandboxId，但地址可能变化。删除后的 404 是资源不存在，不是 Terminated 的别名。](diagrams/lifecycle.svg)
 
 这张表说明「暂停」在三种后端上不是同一件事。Docker 的 pause 只是冻结，不省内存；Kubernetes 与 Fast Sandbox 才是真的把算力还回去。
 

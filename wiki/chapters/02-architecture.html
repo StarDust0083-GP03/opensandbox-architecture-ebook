@@ -58,16 +58,16 @@ runtime.type = &quot;kubernetes&quot;
 <li>为什么服务器要用代理转发流量？那不是主路径，是当直连和网关都不通时的兼容退路。</li>
 <li>为什么 <code>execd</code> 需要自己的令牌？因为控制面的 API key 只授权「管理沙箱」，不授权「进入沙箱」。</li>
 </ul>
-<h2 id="一张图看全">一张图看全</h2><p>把上面的三层、三种后端、两个平面画在一起，就是图 1。它对应仓库里的进程布局，不是部署建议：一次部署通常只用到其中一条后端分支。</p>
-<figure class="diagram"><img src="../assets/diagrams/architecture.svg" alt="图 1：OpenSandbox 整体架构。五层从上到下是客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头是一次请求的路径，其中 ② 在同一份配置下只走一条后端分支。" width="1040" height="908"><figcaption>图 1：OpenSandbox 整体架构。五层从上到下是客户端、控制面、运行时后端、沙箱数据面、网络与旁路；四条编号箭头是一次请求的路径，其中 ② 在同一份配置下只走一条后端分支。</figcaption></figure>
+<h2 id="一张图看全">一张图看全</h2><p>图 1 分开画管理请求、入向访问、出向控制和旁路观测。运行时适配只列出选择，不把所有组件假装成一条串行流水线。</p>
+<figure class="diagram"><img src="../assets/diagrams/architecture.svg" alt="图 1：OpenSandbox 组件与交互关系。管理请求进入生命周期服务器；执行流量经解析后的路径到达沙箱；egress 管出向，观测走旁路。容器使用 sidecar，Fast Sandbox 使用每 Fastlet 共享的 egress 进程。" width="1160" height="980"><figcaption>图 1：OpenSandbox 组件与交互关系。管理请求进入生命周期服务器；执行流量经解析后的路径到达沙箱；egress 管出向，观测走旁路。容器使用 sidecar，Fast Sandbox 使用每 Fastlet 共享的 egress 进程。</figcaption></figure>
 
 <p>同一张图换一个角度看：一次创建请求在时间轴上的落点，以及每一跳对应的章节。</p>
-<figure class="diagram"><img src="../assets/diagrams/request-flow.svg" alt="图 2：一次创建到执行的时序。注意三个边界：池满时是 429 而不是排队；Kubernetes 容器后端会等到 Running 才返回创建结果；endpoint 解析返回的是「地址 + 必需请求头」，不是裸地址。" width="784" height="1088"><figcaption>图 2：一次创建到执行的时序。注意三个边界：池满时是 429 而不是排队；Kubernetes 容器后端会等到 Running 才返回创建结果；endpoint 解析返回的是「地址 + 必需请求头」，不是裸地址。</figcaption></figure>
+<figure class="diagram"><img src="../assets/diagrams/request-flow.svg" alt="图 2：Kubernetes BatchSandbox 池化成功路径（资源 watch 与任务执行器细节作逻辑归并）。创建响应不等于应用就绪；拿到 endpoint 与请求头后仍需健康检查。容量耗尽返回 429 的请求不进入后续执行步骤。" width="1080" height="980"><figcaption>图 2：Kubernetes BatchSandbox 池化成功路径（资源 watch 与任务执行器细节作逻辑归并）。创建响应不等于应用就绪；拿到 endpoint 与请求头后仍需健康检查。容量耗尽返回 429 的请求不进入后续执行步骤。</figcaption></figure>
 
 <p>两条容易被这张图纠正的直觉：</p>
 <ul>
 <li><strong>创建是异步的，但 K8s 容器后端会等到 <code>Running</code></strong>（第 7 篇），所以「轮询到就绪」在多数场景只剩一次确认。</li>
-<li><strong>execd 与 egress 都在沙箱的网络命名空间里，但只有 egress 有 <code>NET_ADMIN</code></strong>；execd 负责执行，不负责管网络。</li>
+<li><strong>容器后端中 execd 与 egress 共享网络命名空间，只有 egress 持有所需的 <code>NET_ADMIN</code></strong>；Fast Sandbox 的共享 egress 在 microVM guest 外，不能套用同一进程布局。</li>
 </ul>
 <h2 id="运行时中立-执行具体">运行时中立，执行具体</h2><p>生命周期 API 里全是跨运行时的概念：<code>resourceLimits</code>、<code>volumes</code>、<code>networkPolicy</code>、<code>platform</code>、<code>secureAccess</code>、<code>metadata</code>、<code>extensions</code>。不同后端把它们翻译成不同的东西：</p>
 <table>

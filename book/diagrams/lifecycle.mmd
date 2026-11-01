@@ -1,17 +1,23 @@
-%% 沙箱生命周期状态机（第 13 篇）
+%% Kubernetes BatchSandbox 的运行与暂停循环；不是所有后端的统一状态机。
 stateDiagram-v2
   direction TB
-  [*] --> Pending: POST /sandboxes
+  [*] --> Pending: 创建
   Pending --> Running: 工作负载就绪
-  Pending --> Failed: 调度或拉镜像失败
-  Running --> Pausing: pause（202，异步）
-  Pausing --> Paused: 快照成功 + 释放算力
-  Pausing --> Failed: PauseFailed（快照不可用）
-  Paused --> Resuming: resume
-  Resuming --> Running: 同一个 sandboxId
-  Resuming --> Failed: 检查点缺失或围栏不匹配
-  Running --> Stopping: DELETE
-  Stopping --> Terminated: 清理完成
-  Stopping --> Failed: 非零退出
-  Terminated --> [*]
-  Failed --> [*]: 换新沙箱，不复活
+  Pending --> Failed: 运行时不可用
+  Running --> Pausing: 请求暂停
+  Pausing --> Paused: rootfs 镜像推送成功并释放资源
+  Pausing --> Running: 提交失败且原工作负载仍可用
+  Paused --> Resuming: 请求恢复
+  Resuming --> Running: 替换工作负载就绪
+  Resuming --> Paused: 仍处于暂停态，可修复后重试
+  Running --> Terminated: 主进程正常退出
+  Running --> Failed: 主进程异常退出或运行时失败
+  note left of Pausing
+    PauseFailed 是条件，不必然是 Failed 状态。
+    ResumeFailed 同理；检查 phase 与 reason。
+  end note
+  note right of Terminated
+    DELETE 是资源清理，不是正常退出。
+    接受删除后可观察到 Stopping，完成后 GET 为 404。
+    此路径独立于图中的进程退出状态。
+  end note

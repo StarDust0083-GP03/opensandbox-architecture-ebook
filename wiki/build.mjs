@@ -37,18 +37,11 @@ marked.use({gfm:true,renderer:{
 }});
 
 function diagramFigure(name,caption,mode){
- if(mode==='single'){
-  const raw=readFileSync(join(diagramDir,name+'.svg'),'utf8')
-   .replace(/<\?xml[^>]*\?>/,'')
-   .replace(/id="([^"]+)"/g,(m,id)=>`id="${name}-${id}"`)
-   .replace(/url\(#([^)]+)\)/g,(m,id)=>`url(#${name}-${id})`)
-   .replace(/<svg /,'<svg class="diagram-svg" preserveAspectRatio="xMidYMid meet" ');
-  return `<figure class="diagram">${raw}<figcaption>${esc(caption)}</figcaption></figure>`;
- }
  const raw=readFileSync(join(diagramDir,name+'.svg'),'utf8');
  const vb=(raw.match(/viewBox="([^"]+)"/)||[,'0 0 1000 700'])[1].trim().split(/[\s,]+/).map(Number);
  const w=Math.round(vb[2]), h=Math.round(vb[3]);
- return `<figure class="diagram"><img src="../assets/diagrams/${name}.svg" alt="${esc(caption)}" width="${w}" height="${h}"><figcaption>${esc(caption)}</figcaption></figure>`;
+ const src=mode==='single'?'data:image/svg+xml;base64,'+Buffer.from(raw).toString('base64'):`../assets/diagrams/${name}.svg`;
+ return `<figure class="diagram"><img src="${src}" alt="${esc(caption)}" width="${w}" height="${h}"><figcaption>${esc(caption)}</figcaption></figure>`;
 }
 
 function convert(md,mode){
@@ -95,7 +88,7 @@ for(const e of entries){currentSlug=e.slug;single+=`<section class="book single-
 single+='</main>';
 writeFileSync(join(out,'book.html'),shell('离线全书',single,'',true));
 
-writeFileSync(join(book,'OpenSandbox架构解剖.md'),`# ${title}\n\n${subtitle}\n\n`+entries.map(e=>e.md.replace(/\]\(([^)]+)\.md(#[^)]*)?\)/g,(match,p)=>/^[a-z]+:\/\//i.test(p)?match:`](#${slug(entries.find(x=>x.slug===p)?.title||p)})`)).join('\n\n---\n\n'));
+writeFileSync(join(book,'OpenSandbox架构解剖.md'),`# ${title}\n\n${subtitle}\n\n`+entries.map(e=>e.md.replace(/\{\{diagram:([a-z0-9-]+)\|([^}]*)\}\}/g,(_m,name,caption)=>`![${caption}](diagrams/${name}.svg)`).replace(/\]\(([^)]+)\.md(#[^)]*)?\)/g,(match,p)=>/^[a-z]+:\/\//i.test(p)?match:`](#${slug(entries.find(x=>x.slug===p)?.title||p)})`)).join('\n\n---\n\n'));
 writeFileSync(join(out,'epub-input.json'),JSON.stringify({title,subtitle,chapters:epubChapters},null,2));
 execFileSync('python3',[join(out,'export_epub.py')],{stdio:'inherit',cwd:root});
 copyFileSync(join(root,'exports/opensandbox-architecture.epub'),join(out,'opensandbox-architecture.epub'));
